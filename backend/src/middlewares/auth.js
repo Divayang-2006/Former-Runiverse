@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 
 export const authMiddleware = async (req, res, next) => {
+  console.log("Authorization header:", req.headers.authorization);
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ msg: "No token, authorization denied" });

@@ -4,9 +4,14 @@ import http from "http";
 import { Server } from "socket.io";
 import app from "./app.js";
 import User from "./models/User.js";
+import passport from "passport";
+import "./config/passport.js";
 
 dotenv.config();
 const PORT = process.env.PORT || 5000;
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running at http://0.0.0.0:${PORT}`);
+});
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });

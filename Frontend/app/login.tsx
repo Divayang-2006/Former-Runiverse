@@ -7,6 +7,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../services/AuthService';
 import { useStore } from '@/store/useStore';
 import { profileService } from '@/services/profileService';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+
 
 const LoginScreen = () => {
   const { theme } = useTheme();
@@ -44,9 +47,18 @@ const LoginScreen = () => {
           normalizedUser = {
             ...result.user,
             id: result.user._id || result.user.id,
+            token: result.token,
             avatarUrl: result.user.avatar || result.user.avatarUrl || null,
           };
         }
+
+        // ✅ Update Zustand (persisted automatically)
+        setUser(normalizedUser);
+
+        // ✅ Set global axios header
+        axios.defaults.headers.common["Authorization"] = `Bearer ${result.token}`;
+        console.log("✅ Logged in user:", normalizedUser);
+        console.log("✅ Token saved:", normalizedUser?.token);
 
         try {
           const me = await profileService.fetchMe();
@@ -71,11 +83,13 @@ const LoginScreen = () => {
       } else {
         Alert.alert('❌ Error', result.message || 'Unable to log in');
       }
+
     } catch (error: any) {
       Alert.alert('Login Error', error?.message || 'Something went wrong');
     } finally {
       setLoading(false);
     }
+
   };
 
   const bgClass = isDarkMode ? 'bg-background-dark' : 'bg-gray-100';

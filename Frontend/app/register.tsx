@@ -100,7 +100,7 @@ export default function RegisterScreen() {
       </View>
 
       {/* Form */}
-      <CustomInput iconName="account-outline" placeholder="Enter Your Last Name" value={lastName} onChangeText={setLastName} />
+      <CustomInput iconName="account-outline" placeholder="Enter Your Name" value={lastName} onChangeText={setLastName} />
       <CustomInput iconName="account-circle-outline" placeholder="Enter Username" value={username} onChangeText={setUsername} />
       <CustomInput iconName="email-outline" placeholder="Enter Email Id" value={email} onChangeText={setEmail} />
       <CustomInput iconName="phone-outline" placeholder="Mobile Number" value={mobile} onChangeText={setMobile} />
