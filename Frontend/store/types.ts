@@ -12,7 +12,6 @@ export interface User {
   city?: string | null;
   lifetimeSteps?: number;
   lifetimeDistance?: number;
-  token?: string;
 }
 
 export interface Group {
