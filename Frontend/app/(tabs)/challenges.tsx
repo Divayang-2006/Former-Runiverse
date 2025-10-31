@@ -20,7 +20,7 @@ interface Task {
   createdAt: string;
   expiresAt?: string;
 }
-const API_BASE_URL = "http://10.76.173.33:5000/api";
+const API_BASE_URL = "http://10.131.36.100:5000/api";
 
 const ChallengeCard = ({
   icon,
