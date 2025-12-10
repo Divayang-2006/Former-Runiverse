@@ -78,6 +78,11 @@ interface TrackingSlice {
   applyStepDelta: (deltaSteps: number) => void;
 }
 
+interface SearchSlice {
+  searchResults: User[];
+  setSearchResults: (results: User[]) => void;
+}
+
 interface TerritorySlice {
   grid: Record<string, GridCell>;
   updateCellInfluence: (
@@ -96,7 +101,12 @@ interface ChallengeSlice {
 
 // Create the combined store
 export const useStore = create<
-  UserSlice & StatsSlice & TrackingSlice & TerritorySlice & ChallengeSlice
+  UserSlice &
+    StatsSlice &
+    TrackingSlice &
+    TerritorySlice &
+    ChallengeSlice &
+    SearchSlice
 >()(
   persist(
     (set, get) => ({
@@ -233,6 +243,10 @@ updateCellInfluence: (cellId, groupId, influence) => {
           ),
         }));
       },
+
+      // Search Slice
+      searchResults: [],
+      setSearchResults: (results) => set({ searchResults: results }),
     }),
     {
       name: "runiverse-storage",

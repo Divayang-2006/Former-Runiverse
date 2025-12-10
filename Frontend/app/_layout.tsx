@@ -84,6 +84,7 @@ function AppContent() {
           <Stack.Screen name="login" />
           <Stack.Screen name="register" />
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="add-friend" />
           <Stack.Screen name="settings" />
           <Stack.Screen name="edit-profile" />
           <Stack.Screen name="achievements" />

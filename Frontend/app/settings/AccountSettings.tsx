@@ -130,17 +130,17 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import Animated, { FadeInDown, Layout } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { useStore } from "@/store/useStore";
 import Toast from "react-native-toast-message";
 
 export default function AccountSettings() {
-  const { theme } = useTheme();
+  const { theme, colors, isDark } = useTheme();
   const router = useRouter();
   const user = useStore((s) => s.user);
   const updateUser = useStore((s) => s.updateUser);
-  const isDarkMode = theme === "dark";
+  const isDarkMode = isDark;
 
   const [name, setName] = useState(user?.username || "");
   const [email, setEmail] = useState(user?.email || "");
@@ -202,62 +202,92 @@ export default function AccountSettings() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
       >
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-          <View className="px-6 pt-6">
+        <ScrollView contentContainerStyle={{ paddingBottom: 100, paddingHorizontal: 16 }} showsVerticalScrollIndicator={false}>
+          <View className="pt-6">
             <View className="flex-row items-center mb-6">
               <Pressable onPress={() => router.back()} className="mr-4 p-2 -ml-2">
                 <Ionicons name="arrow-back" size={28} color={isDarkMode ? "white" : "black"} />
               </Pressable>
-              <Text className={`text-3xl font-bold ${textClass} tracking-tight`}>Account Settings</Text>
+              <Text className="text-[32px] font-black tracking-tight leading-tight" style={{ color: colors.text.primary }}>Account Settings</Text>
             </View>
 
-            <Animated.View entering={FadeInDown.duration(600).delay(100)} className={`rounded-3xl p-6 mb-6 shadow-lg ${cardBgClass}`}>
+            <Animated.View 
+              entering={FadeInDown.duration(600).delay(100).springify()}
+              layout={Layout.springify()}
+              className="rounded-3xl p-6 mb-10"
+              style={{
+                backgroundColor: isDarkMode ? colors.background.elevated : colors.background.secondary,
+                shadowColor: isDarkMode ? '#000' : '#1a1a1a',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: isDarkMode ? 0.5 : 0.15,
+                shadowRadius: 16,
+                elevation: 12,
+              }}
+            >
               <View className="flex-row items-center mb-6">
-                <View className="bg-primary/10 dark:bg-primary/20 p-3 rounded-2xl mr-3">
-                  <Ionicons name="person" size={24} color="#6A5ACD" />
+                <View className="p-3.5 rounded-2xl mr-4" style={{ backgroundColor: `${colors.accent.primary}15` }}>
+                  <Ionicons name="person" size={24} color={colors.accent.primary} />
                 </View>
-                <Text className={`text-xl font-bold ${textClass}`}>Profile Information</Text>
+                <Text className="text-[22px] font-bold tracking-tight" style={{ color: colors.text.primary }}>Profile Information</Text>
               </View>
 
-              <View className="mb-4">
-                <Text className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              <View className="mb-5">
+                <Text className="text-[13px] font-bold mb-2.5 tracking-wide" style={{ color: colors.text.secondary }}>
                   Username
                 </Text>
                 <TextInput
-                  className={`${inputBg} ${inputText} px-4 py-3 rounded-xl text-base`}
+                  className="px-5 py-4 rounded-2xl my-5 text-[15px] font-medium"
+                  style={{
+                    backgroundColor: isDarkMode ? colors.background.tertiary : colors.background.primary,
+                    color: colors.text.primary,
+                    borderWidth: 1,
+                    borderColor: isDarkMode ? colors.border.medium : colors.border.light,
+                  }}
                   value={name}
                   onChangeText={setName}
                   placeholder="Enter your username"
-                  placeholderTextColor={isDarkMode ? "#666" : "#999"}
+                  placeholderTextColor={colors.text.tertiary}
                 />
               </View>
 
-              <View className="mb-4">
-                <Text className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              <View className="mb-5">
+                <Text className="text-[13px] font-bold mb-2.5 tracking-wide" style={{ color: colors.text.secondary }}>
                   Email Address
                 </Text>
                 <TextInput
-                  className={`${inputBg} ${inputText} px-4 py-3 rounded-xl text-base`}
+                  className="px-5 py-4 rounded-2xl text-[15px] font-medium"
+                  style={{
+                    backgroundColor: isDarkMode ? colors.background.tertiary : colors.background.primary,
+                    color: colors.text.primary,
+                    borderWidth: 1,
+                    borderColor: isDarkMode ? colors.border.medium : colors.border.light,
+                  }}
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   placeholder="Enter your email"
-                  placeholderTextColor={isDarkMode ? "#666" : "#999"}
+                  placeholderTextColor={colors.text.tertiary}
                   autoCapitalize="none"
                 />
               </View>
 
               <View className="mb-6">
-                <Text className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                <Text className="text-[13px] font-bold mb-2.5 tracking-wide" style={{ color: colors.text.secondary }}>
                   New Password (optional)
                 </Text>
                 <TextInput
-                  className={`${inputBg} ${inputText} px-4 py-3 rounded-xl text-base`}
+                  className="px-5 py-4 rounded-2xl text-[15px] font-medium"
+                  style={{
+                    backgroundColor: isDarkMode ? colors.background.tertiary : colors.background.primary,
+                    color: colors.text.primary,
+                    borderWidth: 1,
+                    borderColor: isDarkMode ? colors.border.medium : colors.border.light,
+                  }}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
                   placeholder="Enter new password"
-                  placeholderTextColor={isDarkMode ? "#666" : "#999"}
+                  placeholderTextColor={colors.text.tertiary}
                 />
               </View>
 
@@ -271,33 +301,60 @@ export default function AccountSettings() {
                   colors={['#6A5ACD', '#00C853']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  className="py-4 rounded-xl items-center"
+                  className="py-4 rounded-2xl items-center"
+                  style={{
+                    shadowColor: '#6A5ACD',
+                    shadowOffset: { width: 0, height: 6 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 12,
+                    elevation: 8,
+                  }}
                 >
-                  <Text className="text-white font-bold text-base tracking-wide">
+                  <Text className="text-white font-bold text-[15px] tracking-wide">
                     {loading ? "Updating..." : "Update Account"}
                   </Text>
                 </LinearGradient>
               </Pressable>
             </Animated.View>
 
-            <Animated.View entering={FadeInDown.duration(600).delay(200)} className={`rounded-3xl p-6 shadow-lg ${cardBgClass}`}>
-              <View className="flex-row items-center mb-4">
-                <View className="bg-red-500/10 p-3 rounded-2xl mr-3">
+            <Animated.View 
+              entering={FadeInDown.duration(600).delay(200).springify()}
+              layout={Layout.springify()}
+              className="rounded-3xl p-6"
+              style={{
+                backgroundColor: isDarkMode ? colors.background.elevated : colors.background.secondary,
+                shadowColor: isDarkMode ? '#000' : '#1a1a1a',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: isDarkMode ? 0.5 : 0.15,
+                shadowRadius: 16,
+                elevation: 12,
+              }}
+            >
+              <View className="flex-row items-center mb-5">
+                <View className="p-3.5 rounded-2xl mr-4" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)' }}>
                   <Ionicons name="warning" size={24} color="#EF4444" />
                 </View>
-                <Text className={`text-xl font-bold ${textClass}`}>Danger Zone</Text>
+                <Text className="text-[22px] font-bold tracking-tight" style={{ color: colors.text.primary }}>Danger Zone</Text>
               </View>
               
-              <Text className={`text-sm mb-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              <Text className="text-[13px] mb-5 leading-relaxed font-medium" style={{ color: colors.text.secondary }}>
                 Permanently delete your account and all associated data. This action cannot be undone.
               </Text>
 
               <Pressable
                 onPress={handleDeleteAccount}
-                className="bg-red-500 py-4 rounded-xl items-center active:scale-95"
-                style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}
+                className="py-4 rounded-2xl items-center active:scale-95"
+                style={({ pressed }) => [{
+                  opacity: pressed ? 0.8 : 1,
+                  backgroundColor: '#EF4444',
+                  shadowColor: '#EF4444',
+                  shadowOffset: { width: 0, height: 6 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 12,
+                  elevation: 8,
+                }]}
               >
-                <Text className="text-white font-bold text-base tracking-wide">Delete Account</Text>
+                <Text className="text-white font-bold text-[15px] tracking-wide">Delete Account</Text>
               </Pressable>
             </Animated.View>
           </View>

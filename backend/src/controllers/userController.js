@@ -1,4 +1,7 @@
+import mongoose from "mongoose";
 import User from "../models/User.js";
+
+const escapeForRegex = (input = "") => input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export const getProfile = async (req, res) => {
   try {
@@ -61,6 +64,71 @@ export const updateProfile = async (req, res) => {
   } catch (err) {
     console.error("Update error:", err);
     res.status(500).json({ msg: "Server error" });
+  }
+};
+
+export const searchUsers = async (req, res) => {
+  try {
+    const raw = (req.query.q ?? req.query.query ?? "").toString().trim();
+    const query = raw.slice(0, 20);
+
+    if (!query) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const currentUserId = req.user?._id;
+    const friendIds =
+      Array.isArray(req.user?.friends) && req.user.friends.length > 0
+        ? req.user.friends.map((id) => new mongoose.Types.ObjectId(id))
+        : [];
+
+    const matchFilter = {
+      username: new RegExp(escapeForRegex(query), "i"),
+    };
+
+    if (currentUserId) {
+      matchFilter._id = { $ne: currentUserId };
+    }
+    if (friendIds.length > 0) {
+      matchFilter._id = matchFilter._id ? { ...matchFilter._id, $nin: friendIds } : { $nin: friendIds };
+    }
+
+    const pipeline = [
+      { $match: matchFilter },
+      {
+        $addFields: {
+          mutualFriendsCount:
+            friendIds.length > 0
+              ? { $size: { $setIntersection: ["$friends", friendIds] } }
+              : 0,
+        },
+      },
+      {
+        $sort: {
+          mutualFriendsCount: -1,
+          lastActive: -1,
+          createdAt: -1,
+        },
+      },
+      { $limit: 20 },
+      {
+        $project: {
+          username: 1,
+          avatar: 1,
+          avatarUrl: 1,
+          city: 1,
+          lastActive: 1,
+          mutualFriendsCount: 1,
+        },
+      },
+    ];
+
+    const results = await User.aggregate(pipeline);
+
+    return res.json({ success: true, data: results });
+  } catch (err) {
+    console.error("searchUsers error:", err);
+    return res.status(500).json({ success: false, message: "Failed to search users" });
   }
 };
 

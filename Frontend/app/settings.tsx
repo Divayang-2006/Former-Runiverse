@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useTheme } from "../context/ThemeContext";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import Animated, { FadeInDown, Layout } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 
 export default function Settings() {
@@ -52,6 +52,11 @@ export default function Settings() {
   const cardStyle = {
     backgroundColor: colors.background.elevated,
     borderColor: colors.border.light,
+    shadowColor: isDarkMode ? '#000' : '#1E293B',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: isDarkMode ? 0.4 : 0.12,
+    shadowRadius: 16,
+    elevation: 12,
   } as const;
 
   const headerGradient = isDarkMode
@@ -69,33 +74,45 @@ export default function Settings() {
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 className="p-6"
+                style={{
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 12 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 20,
+                  elevation: 16,
+                }}
               >
-                <Text className="text-4xl font-black text-white tracking-tight">Settings</Text>
-                <Text className="text-white/90 text-base mt-2 leading-relaxed">
+                <Text style={{ fontSize: 32 }} className="font-black text-white tracking-tight">Settings</Text>
+                <Text className="text-white/90 mt-2 leading-relaxed" style={{ fontSize: 15 }}>
                   Manage your account and app preferences
                 </Text>
               </LinearGradient>
             </View>
           </Animated.View>
 
-          <Animated.View entering={FadeInDown.duration(600).delay(200)} className="rounded-3xl shadow-lg overflow-hidden" style={cardStyle}>
+          <Animated.View 
+            entering={FadeInDown.duration(600).delay(200)} 
+            layout={Layout.springify()}
+            className="rounded-3xl overflow-hidden mb-6" 
+            style={cardStyle}
+          >
             <View className="flex-row items-center justify-between px-6 py-5">
               <Pressable
                 onPress={toggleTheme}
                 className="flex-1 pr-4"
                 style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
               >
-                <Text className={`text-lg font-semibold ${isDarkMode ? 'text-text-primary' : 'text-gray-900'}`}>
+                <Text style={{ fontSize: 17 }} className={`font-bold ${isDarkMode ? 'text-text-primary' : 'text-gray-900'}`}>
                   Appearance
                 </Text>
-                <Text className={`text-sm mt-1 ${isDarkMode ? 'text-text-secondary' : 'text-gray-500'}`}>
+                <Text style={{ fontSize: 14 }} className={`mt-1 ${isDarkMode ? 'text-text-secondary' : 'text-gray-500'}`}>
                   Switch between light and dark themes across the app.
                 </Text>
               </Pressable>
-              <View className="items-center">
+              <View className="items-center gap-2">
                 <Ionicons
                   name={isDarkMode ? 'moon' : 'sunny'}
-                  size={22}
+                  size={26}
                   color={isDarkMode ? '#FCD34D' : '#F59E0B'}
                 />
                 <Switch
@@ -109,7 +126,12 @@ export default function Settings() {
             </View>
           </Animated.View>
 
-          <Animated.View entering={FadeInDown.duration(600).delay(300)} className="rounded-3xl shadow-lg overflow-hidden" style={cardStyle}>
+          <Animated.View 
+            entering={FadeInDown.duration(600).delay(300)} 
+            layout={Layout.springify()}
+            className="rounded-3xl overflow-hidden" 
+            style={cardStyle}
+          >
             {sections.map((section, index) => (
               <Pressable
                 key={section.title}
@@ -134,10 +156,10 @@ export default function Settings() {
                 >
                   <Ionicons name={section.icon as any} size={24} color={section.tint} />
                 </View>
-                <Text className={`flex-1 text-lg font-medium ${isDarkMode ? 'text-text-primary' : 'text-gray-900'}`}>
+                <Text style={{ fontSize: 16 }} className={`flex-1 font-semibold ${isDarkMode ? 'text-text-primary' : 'text-gray-900'}`}>
                   {section.title}
                 </Text>
-                <Ionicons name="chevron-forward" size={22} color={isDarkMode ? '#9CA3AF' : '#666666'} />
+                <Ionicons name="chevron-forward" size={24} color={isDarkMode ? '#9CA3AF' : '#666666'} />
               </Pressable>
             ))}
           </Animated.View>

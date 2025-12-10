@@ -4,7 +4,8 @@ import {
   getProfile,
   updateProfile,
   syncStats,
-  addBadge
+  addBadge,
+  searchUsers,
 } from "../controllers/userController.js";
 
 const router = express.Router();
@@ -12,5 +13,6 @@ const router = express.Router();
 router.get("/me", authMiddleware, getProfile);
 router.put("/me", authMiddleware, updateProfile);
 router.put("/me/sync-stats", authMiddleware, syncStats);
+router.get("/search", authMiddleware, searchUsers);
 
 export default router;

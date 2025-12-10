@@ -1,16 +1,16 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { View, Text, Pressable, ScrollView, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useTheme } from "../../context/ThemeContext";
-import { FontAwesome5 } from "@expo/vector-icons";
-import { useStore } from "@/store/useStore";
 import Toast from "react-native-toast-message";
-import Animated, { FadeInDown, useAnimatedStyle } from "react-native-reanimated";
-import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useProgressAnimation } from "@/hooks/useProgressAnimation";
-import { User } from "@/store/types";
+import Animated, { FadeInDown, FadeOutDown, Layout } from "react-native-reanimated";
+import { Activity, Flag, Flame, Footprints, Trophy, Trash2 } from "lucide-react-native";
+import { useTheme } from "@/context/ThemeContext";
 import { authService } from "@/services/AuthService";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { ScreenWrapper } from "@/components/layout/ScreenWrapper";
+import { User } from "@/store/types";
+import { useStore } from "@/store/useStore";
 
 export interface Task {
   _id: string;
@@ -25,6 +25,20 @@ export interface Task {
 const API_BASE_URL = "https://runiverse.onrender.com/api";
 
 const PROGRESS_STORAGE_KEY = "challenge-progress-map-v1";
+const DAILY_GOALS_STORAGE_KEY = "daily-goals-v1";
+
+interface DailyGoal {
+  distance: number;
+  steps: number;
+  territories: number;
+}
+
+interface DailyProgress {
+  date: string;
+  startDistance: number;
+  startSteps: number;
+  startTerritories: number;
+}
 
 interface ProgressEntry {
   joined: boolean;
@@ -111,240 +125,36 @@ export const METRIC_CONFIG: Record<Task["type"], MetricConfig> = {
   },
 };
 
-interface ChallengeCardProps {
-  task: Task;
-  icon: string;
-  index: number;
-  progressEntry?: ProgressEntry;
-  onJoin: (task: Task) => void;
-  trackingAvailable: boolean;
-  syncingCompletion: boolean;
-  progressReady: boolean;
-}
-
-export const difficultyColors: Record<string, string> = {
-  easy: "#00C853",
-  medium: "#FFA500",
-  hard: "#DC143C",
-};
-
-const challengeStyles = StyleSheet.create({
-  cardContainer: {
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 20,
-    borderWidth: 1,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
-    elevation: 10,
-  },
-  joinButton: {
-    borderRadius: 20,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowOffset: { width: 0, height: 10 },
-  },
-  joinButtonText: {
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-  },
-});
-
-const ChallengeCard = ({
-  task,
-  icon,
-  index = 0,
-  progressEntry,
-  onJoin,
-  trackingAvailable,
-  syncingCompletion,
-  progressReady,
-}: ChallengeCardProps) => {
-  const { colors, isDark } = useTheme();
-  const config = METRIC_CONFIG[task.type];
-
-  const joined = task.completed || !!progressEntry?.joined;
-  const completed = task.completed || !!progressEntry?.completed;
-  const progressPercent = completed ? 100 : progressEntry?.percent ?? 0;
-  const animatedProgress = useProgressAnimation(progressPercent);
-
-  const progressBarStyle = useAnimatedStyle(() => ({
-    width: `${animatedProgress.value}%`,
-  }));
-
-  const progressValue = completed ? task.target : progressEntry?.progressValue ?? 0;
-  const formattedProgress = config
-    ? `${config.formatValue(progressValue)} / ${config.formatTarget(task.target)} ${config.unitLabel}`
-    : `${progressValue} / ${task.target}`;
-
-  const progressSummary = completed
-    ? "Completed 🎉"
-    : `${Math.min(100, Math.round(progressPercent))}% · ${formattedProgress}`;
-
-  const difficultyColor = difficultyColors[task.difficulty] || "#00C853";
-
-  const joinDisabled = !progressReady || !trackingAvailable;
-  const joinButtonLabel = !progressReady
-    ? "Loading Progress..."
-    : trackingAvailable
-      ? "Join Challenge"
-      : "Tracking Unavailable";
-  const surfaceColor = colors.background.elevated;
-  const borderColor = isDark ? colors.border.medium : colors.border.light;
-  const mutedSurface = isDark ? colors.background.tertiary : colors.background.secondary;
-  const joinBackground = joinDisabled ? mutedSurface : colors.status.success;
-  const joinTextColor = joinDisabled ? colors.text.secondary : colors.background.primary;
-  const joinAssistiveColor = colors.text.secondary;
-
-  return (
-    <Animated.View
-      entering={FadeInDown.duration(600).delay(index * 100)}
-      style={[
-        challengeStyles.cardContainer,
-        {
-          backgroundColor: surfaceColor,
-          borderColor,
-          shadowColor: isDark ? "rgba(0,0,0,0.45)" : "rgba(15,23,42,0.16)",
-        },
-      ]}
-    >
-      <View className="flex-row items-start mb-4">
-        <View className="bg-primary/10 dark:bg-primary/20 p-4 rounded-2xl mr-4">
-          <FontAwesome5 name={icon || "running"} size={28} color="#00C853" />
-        </View>
-        <View className="flex-1">
-          <Text
-            className="text-xl font-bold tracking-tight"
-            style={{ color: colors.text.primary }}
-          >
-            {task.type.charAt(0).toUpperCase() + task.type.slice(1)} Challenge
-          </Text>
-          <Text
-            className="text-base mt-2 mb-3 leading-relaxed"
-            style={{ color: colors.text.secondary }}
-          >
-            {task.description}
-          </Text>
-          <View className="flex-row items-center flex-wrap gap-2">
-            <View className="bg-blue-100 dark:bg-blue-900/30 px-3 py-1.5 rounded-full">
-              <Text className="text-xs font-semibold text-blue-700 dark:text-blue-300">
-                🎯 {config ? `${config.formatTarget(task.target)} ${config.unitLabel}` : task.target}
-              </Text>
-            </View>
-            <View className={`px-3 py-1.5 rounded-full`} style={{ backgroundColor: `${difficultyColor}20` }}>
-              <Text className="text-xs font-semibold" style={{ color: difficultyColor }}>
-                ⚙️ {task.difficulty.toUpperCase()}
-              </Text>
-            </View>
-            <View className="bg-purple-100 dark:bg-purple-900/30 px-3 py-1.5 rounded-full">
-              <Text className="text-xs font-semibold text-purple-700 dark:text-purple-300">🏃‍♂️ {task.type.toUpperCase()}</Text>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      {!joined ? (
-        <View>
-          <Pressable
-            disabled={joinDisabled}
-            onPress={() => onJoin(task)}
-            style={({ pressed }) => [
-              challengeStyles.joinButton,
-              {
-                backgroundColor: joinBackground,
-                opacity: pressed ? 0.95 : 1,
-                transform: [{ scale: pressed ? 0.98 : 1 }],
-                shadowColor: joinDisabled ? "transparent" : joinBackground,
-                shadowOpacity: joinDisabled ? 0 : 0.25,
-                elevation: joinDisabled ? 0 : 8,
-              },
-            ]}
-          >
-            <Text
-              style={[challengeStyles.joinButtonText, { color: joinTextColor }]}
-            >
-              {joinButtonLabel}
-            </Text>
-          </Pressable>
-          {!progressReady && (
-            <Text
-              className="text-xs mt-2 text-center"
-              style={{ color: joinAssistiveColor }}
-            >
-              Preparing your activity data...
-            </Text>
-          )}
-          {progressReady && !trackingAvailable && (
-            <Text
-              className="text-xs mt-2 text-center"
-              style={{ color: joinAssistiveColor }}
-            >
-              Connect your activity tracker to start this challenge.
-            </Text>
-          )}
-        </View>
-      ) : (
-        <View>
-          <View className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden mt-3">
-            <Animated.View
-              style={[progressBarStyle, { height: "100%", backgroundColor: completed ? "#00C853" : "#00A843" }]}
-            />
-          </View>
-          <Text
-            className="mt-2 text-center font-medium"
-            style={{ color: colors.text.secondary }}
-          >
-            {progressSummary}
-          </Text>
-          {syncingCompletion && !completed && (
-            <Text
-              className="mt-1 text-center text-xs"
-              style={{ color: colors.text.tertiary }}
-            >
-              Syncing progress...
-            </Text>
-          )}
-          {completed && !task.completed && (
-            <Text
-              className="mt-1 text-center text-xs"
-              style={{ color: colors.text.tertiary }}
-            >
-              Finalizing completion...
-            </Text>
-          )}
-        </View>
-      )}
-    </Animated.View>
-  );
-};
-
-export const TASK_TYPE_ICON: Record<Task["type"], string> = {
-  run: "running",
-  walk: "walking",
-  capture: "flag",
-  streak: "fire",
+export const TASK_TYPE_ICON: Record<
+  Task["type"],
+  React.ComponentType<{ size?: number; color?: string }>
+> = {
+  run: Activity,
+  walk: Footprints,
+  capture: Flag,
+  streak: Flame,
 };
 
 const ChallengesScreen = () => {
-  const { theme } = useTheme();
-  const isDarkMode = theme === "dark";
+  const { colors, isDark } = useTheme();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [progressMap, setProgressMap] = useState<Record<string, ProgressEntry>>({});
   const [progressHydrated, setProgressHydrated] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [dailyGoals, setDailyGoals] = useState<DailyGoal>({ distance: 5000, steps: 10000, territories: 3 });
+  const [dailyProgress, setDailyProgress] = useState<DailyProgress | null>(null);
+  const [showGoalEditor, setShowGoalEditor] = useState(false);
   const completionInFlight = useRef<Set<string>>(new Set());
   const autoJoinQueue = useRef<Map<string, Task>>(new Map());
-
-  const bgClass = isDarkMode ? "bg-background-dark" : "bg-gray-100";
-  const textClass = isDarkMode ? "text-text-primary" : "text-gray-900";
-
   const user = useStore((s) => s.user);
   const token = user?.token ?? authService.getToken();
+
+  const difficultyColors: Record<Task["difficulty"], string> = {
+    easy: colors.status.success,
+    medium: colors.status.warning,
+    hard: colors.status.error,
+  };
 
   const ensureSyncingState = useCallback((taskId: string, syncing: boolean) => {
     setSyncingIds((prev) => {
@@ -448,7 +258,7 @@ const ChallengesScreen = () => {
       if (joined && !silent) {
         Toast.show({
           type: "success",
-          text1: "Challenge joined 🎯",
+          text1: "Challenge joined",
           text2: "Track your activity to complete it.",
           position: "bottom",
         });
@@ -518,7 +328,104 @@ const ChallengesScreen = () => {
     });
   }, [progressMap, progressHydrated]);
 
-  // Fetch user’s tasks from backend
+  useEffect(() => {
+    const loadDailyGoals = async () => {
+      try {
+        const goalsRaw = await AsyncStorage.getItem(DAILY_GOALS_STORAGE_KEY);
+        if (goalsRaw) {
+          const saved = JSON.parse(goalsRaw);
+          if (saved.goals) setDailyGoals(saved.goals);
+          if (saved.progress) {
+            const today = new Date().toDateString();
+            if (saved.progress.date === today) {
+              setDailyProgress(saved.progress);
+            } else {
+              const newProgress: DailyProgress = {
+                date: today,
+                startDistance: user?.distance ?? 0,
+                startSteps: user?.steps ?? 0,
+                startTerritories: user?.territories ?? 0,
+              };
+              setDailyProgress(newProgress);
+            }
+          }
+        } else {
+          const today = new Date().toDateString();
+          setDailyProgress({
+            date: today,
+            startDistance: user?.distance ?? 0,
+            startSteps: user?.steps ?? 0,
+            startTerritories: user?.territories ?? 0,
+          });
+        }
+      } catch (err) {
+        console.log("load daily goals failed:", err);
+      }
+    };
+    loadDailyGoals();
+  }, [user]);
+
+  useEffect(() => {
+    if (!dailyProgress) return;
+    AsyncStorage.setItem(
+      DAILY_GOALS_STORAGE_KEY,
+      JSON.stringify({ goals: dailyGoals, progress: dailyProgress })
+    ).catch((err) => console.log("persist daily goals failed:", err));
+  }, [dailyGoals, dailyProgress]);
+
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      if (!progressHydrated || !user) return;
+      
+      setProgressMap((prev) => {
+        let changed = false;
+        const next: Record<string, ProgressEntry> = { ...prev };
+        const taskById = new Map(tasks.map((task) => [task._id, task]));
+
+        Object.keys(next).forEach((taskId) => {
+          if (!taskById.has(taskId)) {
+            delete next[taskId];
+            changed = true;
+          }
+        });
+
+        tasks.forEach((task) => {
+          const config = METRIC_CONFIG[task.type];
+          if (!config) return;
+
+          const existing = next[task._id];
+          if (!existing || !existing.joined || task.completed) return;
+
+          const currentRaw = config.selector(user);
+          const delta = config.computeDelta(currentRaw, existing.baselineRaw);
+          const safeDelta = Number.isFinite(delta) ? Math.max(0, delta) : 0;
+          const clampedValue = task.target > 0 ? Math.min(safeDelta, task.target) : safeDelta;
+          const percent = task.target > 0 ? Math.min(100, Math.round((clampedValue / task.target) * 100)) : 100;
+          const completed = safeDelta >= task.target;
+
+          if (
+            existing.progressValue !== clampedValue ||
+            existing.percent !== percent ||
+            existing.completed !== completed
+          ) {
+            next[task._id] = {
+              ...existing,
+              progressValue: clampedValue,
+              percent,
+              completed,
+            };
+            changed = true;
+          }
+        });
+
+        return changed ? next : prev;
+      });
+    }, 5000);
+
+    return () => clearInterval(refreshInterval);
+  }, [tasks, user, progressHydrated]);
+
+  // Fetch user's tasks from backend
   const fetchTasks = useCallback(async () => {
     if (!token) {
       setTasks([]);
@@ -600,6 +507,53 @@ const ChallengesScreen = () => {
       setLoading(false);
     }
   }, [token, enqueueAutoJoin]);
+
+  const deleteChallenge = useCallback(async (taskId: string) => {
+    if (!token) {
+      Toast.show({
+        type: "info",
+        text1: "Sign in required",
+        text2: "Log in to delete challenges.",
+        position: "bottom",
+      });
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.msg || "Failed to delete challenge");
+      }
+
+      setTasks((prev) => prev.filter((t) => t._id !== taskId));
+      setProgressMap((prev) => {
+        const next = { ...prev };
+        delete next[taskId];
+        return next;
+      });
+
+      Toast.show({
+        type: "success",
+        text1: "Challenge deleted",
+        text2: "Challenge removed successfully.",
+        position: "bottom",
+      });
+    } catch (err) {
+      console.error("Delete challenge error:", err);
+      Toast.show({
+        type: "error",
+        text1: "Delete failed",
+        text2: err instanceof Error ? err.message : "Please try again.",
+        position: "bottom",
+      });
+    }
+  }, [token]);
 
   useEffect(() => {
     if (!progressHydrated) return;
@@ -783,7 +737,7 @@ const ChallengesScreen = () => {
           Toast.show({
             type: "success",
             text1: "Challenge completed",
-            text2: "Nice work! Goal achieved.",
+            text2: "Goal achieved.",
             position: "bottom",
           });
         } catch (err) {
@@ -809,71 +763,356 @@ const ChallengesScreen = () => {
     [joinChallenge]
   );
 
-  return (
-    <SafeAreaView className={`flex-1 ${bgClass}`}>
-      <ScrollView contentContainerStyle={{ padding: 20 }} showsVerticalScrollIndicator={false}>
-        <Animated.View entering={FadeInDown.duration(600).delay(100)} className="mb-6">
-          <Text className={`text-4xl font-bold mb-3 ${textClass} tracking-tight`}>Challenges</Text>
-          <Text className={`text-base mb-6 ${textClass} leading-relaxed opacity-80`}>
-            Earn badges, stay consistent & keep running!
-          </Text>
+  const renderCard = (task: Task, index: number) => {
+    const config = METRIC_CONFIG[task.type];
+    const progressEntry = progressMap[task._id];
+    const joined = task.completed || !!progressEntry?.joined;
+    const completed = task.completed || !!progressEntry?.completed;
+    const progressPercent = completed ? 100 : progressEntry?.percent ?? 0;
+    const clampedProgress = Math.min(progressPercent, 100);
 
-          <Pressable
-            onPress={generateAITask}
-            disabled={loading}
-            className="overflow-hidden rounded-2xl shadow-xl shadow-primary-green/20 active:scale-98"
-            style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }]}
-          >
-            <LinearGradient
-              colors={['#00C853', '#00A843']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              className="py-4 px-6 flex-row items-center justify-center"
+    const progressValue = completed ? task.target : progressEntry?.progressValue ?? 0;
+    const formattedProgress = config
+      ? `${config.formatValue(progressValue)} / ${config.formatTarget(task.target)} ${config.unitLabel}`
+      : `${progressValue} / ${task.target}`;
+
+    const IconComponent = TASK_TYPE_ICON[task.type] ?? Trophy;
+    const difficultyColor = difficultyColors[task.difficulty] || colors.accent.primary;
+    const trackingAvailable = progressHydrated && !!config && config.canTrack(user ?? null);
+    const syncingCompletion = syncingIds.has(task._id);
+    const joinDisabled = !progressHydrated || !trackingAvailable;
+
+    return (
+      <Animated.View
+        key={task._id}
+        entering={FadeInDown.duration(400).springify()}
+        exiting={FadeOutDown.duration(300)}
+        layout={Layout.springify()}
+        className="mb-4"
+      >
+        <Pressable
+          onPress={!joined ? () => handleJoin(task) : undefined}
+          style={[{
+            backgroundColor: colors.background.elevated,
+            borderColor: colors.border.medium,
+            borderWidth: 1,
+            borderRadius: 24,
+            padding: 20,
+          }]}
+          className="active:scale-[0.98]"
+        >
+          <View className="flex-row items-center justify-between mb-4">
+            <View className="flex-row items-center gap-3 flex-1">
+              <View className="w-12 h-12 rounded-2xl items-center justify-center" style={{ backgroundColor: `${difficultyColor}15` }}>
+                <IconComponent size={24} color={difficultyColor} />
+              </View>
+              <View className="flex-1">
+                <Text className="text-lg font-bold" style={{ color: colors.text.primary }}>
+                  {task.type.charAt(0).toUpperCase() + task.type.slice(1)} Challenge
+                </Text>
+                <Text className="text-sm mt-0.5" style={{ color: colors.text.secondary }}>{task.description}</Text>
+              </View>
+            </View>
+            <Pressable
+              onPress={() => deleteChallenge(task._id)}
+              className="w-10 h-10 rounded-lg items-center justify-center"
+              style={{ backgroundColor: `${colors.status.error}15` }}
             >
-              <Text className="text-black text-base font-bold mr-2">
-                {loading ? "Working..." : "Generate AI Challenge"}
-              </Text>
-              <Text className="text-2xl">🤖</Text>
-            </LinearGradient>
-          </Pressable>
-        </Animated.View>
-
-        {loading && tasks.length === 0 ? (
-          <View className="items-center justify-center py-20">
-            <ActivityIndicator size="large" color="#00C853" />
-            <Text className={`mt-4 ${textClass} opacity-70`}>Loading challenges...</Text>
+              <Trash2 size={18} color={colors.status.error} />
+            </Pressable>
           </View>
-        ) : tasks.length === 0 ? (
-          <Animated.View entering={FadeInDown.duration(600).delay(200)} className="items-center justify-center py-20">
-            <Text className="text-6xl mb-4">🎯</Text>
-            <Text className={`text-center text-xl font-semibold ${textClass}`}>No challenges yet!</Text>
-            <Text className={`text-center mt-2 ${textClass} opacity-70`}>Generate one to get started.</Text>
-          </Animated.View>
-        ) : (
-          tasks.map((task, idx) => {
-            const iconName = TASK_TYPE_ICON[task.type] || "running";
-            const progressEntry = progressMap[task._id];
-            const config = METRIC_CONFIG[task.type];
-            const trackingAvailable = progressHydrated && !!config && config.canTrack(user ?? null);
-            const syncingCompletion = syncingIds.has(task._id);
 
-            return (
-              <ChallengeCard
-                key={task._id}
-                index={idx}
-                icon={iconName}
-                task={task}
-                progressEntry={progressEntry}
-                onJoin={handleJoin}
-                trackingAvailable={trackingAvailable}
-                syncingCompletion={syncingCompletion}
-                progressReady={progressHydrated}
-              />
-            );
-          })
-        )}
-      </ScrollView>
-    </SafeAreaView>
+          <View className="flex-row items-center gap-2 mb-4">
+            <View className="px-3 py-1.5 rounded-lg" style={{ backgroundColor: `${difficultyColor}20` }}>
+              <Text className="text-xs font-bold" style={{ color: difficultyColor }}>
+                {task.difficulty.toUpperCase()}
+              </Text>
+            </View>
+            <View className="px-3 py-1.5 rounded-lg" style={{ backgroundColor: colors.background.tertiary }}>
+              <Text className="text-xs font-semibold" style={{ color: colors.text.secondary }}>
+                Target: {config ? `${config.formatTarget(task.target)} ${config.unitLabel}` : task.target}
+              </Text>
+            </View>
+          </View>
+
+          {!joined ? (
+            <View>
+              <Pressable
+                disabled={joinDisabled}
+                onPress={() => handleJoin(task)}
+                style={[{
+                  backgroundColor: joinDisabled ? colors.background.tertiary : colors.status.success,
+                  borderRadius: 12,
+                  paddingVertical: 14,
+                  alignItems: 'center',
+                }]}
+              >
+                <Text className="text-sm font-bold" style={{ color: joinDisabled ? colors.text.disabled : '#FFFFFF' }}>
+                  {progressHydrated ? (trackingAvailable ? "Join Challenge" : "Tracking Unavailable") : "Loading..."}
+                </Text>
+              </Pressable>
+              {!progressHydrated && (
+                <Text className="text-xs text-center mt-2" style={{ color: colors.text.tertiary }}>Preparing your data...</Text>
+              )}
+            </View>
+          ) : (
+            <View>
+              <View className="mb-2">
+                <View className="flex-row justify-between items-center mb-1.5">
+                  <Text className="text-xs font-semibold" style={{ color: colors.text.secondary }}>Progress</Text>
+                  <Text className="text-xs font-bold" style={{ color: colors.text.primary }}>{Math.round(clampedProgress)}%</Text>
+                </View>
+                <View className="h-2 w-full rounded-full overflow-hidden" style={{ backgroundColor: colors.background.tertiary }}>
+                  <Animated.View
+                    style={{
+                      width: `${clampedProgress}%`,
+                      height: "100%",
+                      backgroundColor: completed ? colors.status.success : colors.status.info,
+                    }}
+                  />
+                </View>
+              </View>
+              <Text className="text-sm font-semibold text-center" style={{ color: colors.text.secondary }}>
+                {formattedProgress}
+              </Text>
+              {completed && (
+                <View className="mt-2 rounded-lg py-2 px-3" style={{ backgroundColor: `${colors.status.success}15` }}>
+                  <Text className="text-xs font-bold text-center" style={{ color: colors.status.success }}>Challenge Completed</Text>
+                </View>
+              )}
+              {syncingCompletion && !completed && (
+                <Text className="text-xs text-center mt-1" style={{ color: colors.text.tertiary }}>Syncing...</Text>
+              )}
+            </View>
+          )}
+        </Pressable>
+      </Animated.View>
+    );
+  };
+  return (
+    <ScreenWrapper bg={isDark ? "bg-background-dark" : "bg-gray-100"}>
+      <SafeAreaView className="flex-1">
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 100, paddingHorizontal: 16 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View entering={FadeInDown.duration(600).delay(80)} className="pt-6 pb-4">
+            <Text className="text-4xl font-black tracking-tight" style={{ color: colors.text.primary }}>Challenges</Text>
+            <Text className="text-base mt-2" style={{ color: colors.text.secondary }}>
+              Push your limits and track your progress.
+            </Text>
+          </Animated.View>
+
+          <Animated.View entering={FadeInDown.duration(500).delay(100)} className="mb-4">
+            <View className="rounded-3xl p-5" style={{ backgroundColor: colors.background.elevated, borderColor: colors.border.medium, borderWidth: 1, minHeight: showGoalEditor ? undefined : 180 }}>
+              <View className="flex-row items-center justify-between mb-4">
+                <Text className="text-xl font-bold" style={{ color: colors.text.primary }}>Daily Goals</Text>
+                <Pressable
+                  onPress={() => setShowGoalEditor(!showGoalEditor)}
+                  className="px-3 py-1.5 rounded-lg"
+                  style={{ backgroundColor: `${colors.status.info}20` }}
+                >
+                  <Text className="text-xs font-semibold" style={{ color: colors.status.info }}>
+                    {showGoalEditor ? "Done" : "Edit"}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {showGoalEditor ? (
+                <View className="gap-3">
+                  <View>
+                    <Text className="text-sm font-semibold mb-2" style={{ color: colors.text.secondary }}>Distance Goal (meters)</Text>
+                    <View className="flex-row items-center gap-2">
+                      <Pressable
+                        onPress={() => setDailyGoals(prev => ({ ...prev, distance: Math.max(0, prev.distance - 1000) }))}
+                        className="w-10 h-10 rounded-lg items-center justify-center"
+                        style={{ backgroundColor: colors.background.tertiary }}
+                      >
+                        <Text className="font-bold text-lg" style={{ color: colors.text.primary }}>-</Text>
+                      </Pressable>
+                      <View className="flex-1 rounded-lg py-2" style={{ backgroundColor: colors.background.tertiary }}>
+                        <Text className="text-center font-bold" style={{ color: colors.text.primary }}>{dailyGoals.distance}m</Text>
+                      </View>
+                      <Pressable
+                        onPress={() => setDailyGoals(prev => ({ ...prev, distance: prev.distance + 1000 }))}
+                        className="w-10 h-10 rounded-lg items-center justify-center"
+                        style={{ backgroundColor: colors.background.tertiary }}
+                      >
+                        <Text className="font-bold text-lg" style={{ color: colors.text.primary }}>+</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  <View>
+                    <Text className="text-sm font-semibold mb-2" style={{ color: colors.text.secondary }}>Steps Goal</Text>
+                    <View className="flex-row items-center gap-2">
+                      <Pressable
+                        onPress={() => setDailyGoals(prev => ({ ...prev, steps: Math.max(0, prev.steps - 1000) }))}
+                        className="w-10 h-10 rounded-lg items-center justify-center"
+                        style={{ backgroundColor: colors.background.tertiary }}
+                      >
+                        <Text className="font-bold text-lg" style={{ color: colors.text.primary }}>-</Text>
+                      </Pressable>
+                      <View className="flex-1 rounded-lg py-2" style={{ backgroundColor: colors.background.tertiary }}>
+                        <Text className="text-center font-bold" style={{ color: colors.text.primary }}>{dailyGoals.steps} steps</Text>
+                      </View>
+                      <Pressable
+                        onPress={() => setDailyGoals(prev => ({ ...prev, steps: prev.steps + 1000 }))}
+                        className="w-10 h-10 rounded-lg items-center justify-center"
+                        style={{ backgroundColor: colors.background.tertiary }}
+                      >
+                        <Text className="font-bold text-lg" style={{ color: colors.text.primary }}>+</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  <View>
+                    <Text className="text-sm font-semibold mb-2" style={{ color: colors.text.secondary }}>Territories Goal</Text>
+                    <View className="flex-row items-center gap-2">
+                      <Pressable
+                        onPress={() => setDailyGoals(prev => ({ ...prev, territories: Math.max(0, prev.territories - 1) }))}
+                        className="w-10 h-10 rounded-lg items-center justify-center"
+                        style={{ backgroundColor: colors.background.tertiary }}
+                      >
+                        <Text className="font-bold text-lg" style={{ color: colors.text.primary }}>-</Text>
+                      </Pressable>
+                      <View className="flex-1 rounded-lg py-2" style={{ backgroundColor: colors.background.tertiary }}>
+                        <Text className="text-center font-bold" style={{ color: colors.text.primary }}>{dailyGoals.territories} territories</Text>
+                      </View>
+                      <Pressable
+                        onPress={() => setDailyGoals(prev => ({ ...prev, territories: prev.territories + 1 }))}
+                        className="w-10 h-10 rounded-lg items-center justify-center"
+                        style={{ backgroundColor: colors.background.tertiary }}
+                      >
+                        <Text className="font-bold text-lg" style={{ color: colors.text.primary }}>+</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                <View className="gap-3">
+                  {(() => {
+                    const distanceProgress = dailyProgress
+                      ? Math.max(0, (user?.distance ?? 0) - dailyProgress.startDistance)
+                      : 0;
+                    const stepsProgress = dailyProgress
+                      ? Math.max(0, (user?.steps ?? 0) - dailyProgress.startSteps)
+                      : 0;
+                    const territoriesProgress = dailyProgress
+                      ? Math.max(0, (user?.territories ?? 0) - dailyProgress.startTerritories)
+                      : 0;
+
+                    const distancePercent = Math.min(100, (distanceProgress / dailyGoals.distance) * 100);
+                    const stepsPercent = Math.min(100, (stepsProgress / dailyGoals.steps) * 100);
+                    const territoriesPercent = Math.min(100, (territoriesProgress / dailyGoals.territories) * 100);
+
+                    return (
+                      <>
+                        <View>
+                          <View className="flex-row justify-between items-center mb-1">
+                            <Text className="text-sm font-semibold" style={{ color: colors.text.secondary }}>Distance</Text>
+                            <Text className="text-xs font-bold" style={{ color: colors.text.primary }}>
+                              {distanceProgress}m / {dailyGoals.distance}m
+                            </Text>
+                          </View>
+                          <View className="h-2 w-full rounded-full overflow-hidden" style={{ backgroundColor: colors.background.tertiary }}>
+                            <View
+                              style={{ width: `${distancePercent}%`, height: "100%", backgroundColor: colors.status.info }}
+                            />
+                          </View>
+                        </View>
+
+                        <View>
+                          <View className="flex-row justify-between items-center mb-1">
+                            <Text className="text-sm font-semibold" style={{ color: colors.text.secondary }}>Steps</Text>
+                            <Text className="text-xs font-bold" style={{ color: colors.text.primary }}>
+                              {stepsProgress} / {dailyGoals.steps}
+                            </Text>
+                          </View>
+                          <View className="h-2 w-full rounded-full overflow-hidden" style={{ backgroundColor: colors.background.tertiary }}>
+                            <View
+                              style={{ width: `${stepsPercent}%`, height: "100%", backgroundColor: '#8B5CF6' }}
+                            />
+                          </View>
+                        </View>
+
+                        <View>
+                          <View className="flex-row justify-between items-center mb-1">
+                            <Text className="text-sm font-semibold" style={{ color: colors.text.secondary }}>Territories</Text>
+                            <Text className="text-xs font-bold" style={{ color: colors.text.primary }}>
+                              {territoriesProgress} / {dailyGoals.territories}
+                            </Text>
+                          </View>
+                          <View className="h-2 w-full rounded-full overflow-hidden" style={{ backgroundColor: colors.background.tertiary }}>
+                            <View
+                              style={{ width: `${territoriesPercent}%`, height: "100%", backgroundColor: colors.status.success }}
+                            />
+                          </View>
+                        </View>
+                      </>
+                    );
+                  })()}
+                </View>
+              )}
+            </View>
+          </Animated.View>
+
+          {loading && tasks.length === 0 ? (
+            <View className="items-center justify-center py-16">
+              <ActivityIndicator size="large" color={colors.status.info} />
+              <Text className="mt-4" style={{ color: colors.text.secondary }}>Loading challenges...</Text>
+            </View>
+          ) : tasks.length === 0 ? (
+            <Animated.View entering={FadeInDown.duration(600).delay(200)} className="items-center py-16">
+              <Text className="text-xl font-semibold" style={{ color: colors.text.primary }}>No challenges yet</Text>
+              <Text className="mt-2 text-center" style={{ color: colors.text.secondary }}>
+                Generate one to get started.
+              </Text>
+            </Animated.View>
+          ) : (
+            <Animated.View layout={Layout.springify()}>
+              <Animated.View 
+                entering={FadeInDown.duration(500).delay(120)}
+                layout={Layout.springify()}
+              >
+                <Pressable
+                  disabled={loading}
+                  onPress={generateAITask}
+                  className="rounded-3xl p-6 mb-4"
+                  style={[{ backgroundColor: colors.background.elevated, borderColor: colors.border.medium, borderWidth: 1 }, ({ pressed }) => ({ opacity: pressed ? 0.95 : 1 })]}
+                >
+                  <View className="flex-row items-center mb-4">
+                    <View className="p-3 rounded-2xl mr-3" style={{ backgroundColor: `${colors.status.success}15` }}>
+                      <Trophy size={32} color={colors.status.success} strokeWidth={2.5} />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-xl font-bold" style={{ color: colors.text.primary }}>AI Challenge</Text>
+                      <Text className="text-sm mt-0.5" style={{ color: colors.text.secondary }}>
+                        Powered by your stats
+                      </Text>
+                    </View>
+                  </View>
+                  
+                  <Text className="text-sm mb-4 leading-5" style={{ color: colors.text.secondary }}>
+                    Get a personalized challenge tailored to your recent performance, activity streak, and fitness level.
+                  </Text>
+                  
+                  <View
+                    className="w-full items-center rounded-2xl py-3.5"
+                    style={{ backgroundColor: loading ? colors.background.tertiary : colors.status.success }}
+                  >
+                    <Text className="text-base font-bold" style={{ color: loading ? colors.text.secondary : '#FFFFFF' }}>
+                      {loading ? "Generating..." : "Generate Challenge"}
+                    </Text>
+                  </View>
+                </Pressable>
+              </Animated.View>
+              {tasks.map((task, idx) => renderCard(task, idx))}
+            </Animated.View>
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    </ScreenWrapper>
   );
 };
 

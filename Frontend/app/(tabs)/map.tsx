@@ -199,15 +199,18 @@ export default function MapScreen() {
   const processedSamplesRef = useRef<ProcessedSample[]>([]);
   const routeStartRef = useRef<number | null>(null);
   const hasCenteredRef = useRef(false);
+  const lastTerritoryFetchRef = useRef<number>(0);
   
-  if (!territoryEngineRef.current) {
-    territoryEngineRef.current = new TerrotorieEngine({
-      minDistanceMeters: 6,
-      simplifyTolerance: POLYLINE_SIMPLIFY_TOL,
-      minSegmentSamples: 6,
-      minLoopAreaMeters: 10,
-    });
-  }
+  useEffect(() => {
+    if (!territoryEngineRef.current) {
+      territoryEngineRef.current = new TerrotorieEngine({
+        minDistanceMeters: 6,
+        simplifyTolerance: POLYLINE_SIMPLIFY_TOL,
+        minSegmentSamples: 6,
+        minLoopAreaMeters: 10,
+      });
+    }
+  }, []);
   
   const getProcessedRoute = useCallback(() => processedSamplesRef.current.map((sample) => sample.coord), []);
   
@@ -236,6 +239,7 @@ export default function MapScreen() {
       if (samples.length < 2) {
         return;
       }
+      
       const processedPoints = samples.map((sample) => ({
         lon: sample.coord[0],
         lat: sample.coord[1],
@@ -246,10 +250,20 @@ export default function MapScreen() {
         lat: point.lat,
         ts: point.ts,
       }));
-      const encodedPolyline = polyline.encode(samples.map((sample) => [sample.coord[1], sample.coord[0]]));
+      
+      let encodedPolyline = "";
+      if (samples.length > 0) {
+        try {
+          encodedPolyline = polyline.encode(samples.map((sample) => [sample.coord[1], sample.coord[0]]));
+        } catch (encodeErr) {
+          console.warn("Polyline encoding failed, proceeding without", encodeErr);
+        }
+      }
+      
       const startedAt = routeStartRef.current ?? undefined;
       const endedAt = samples[samples.length - 1]?.ts ?? Date.now();
       const durationSeconds = startedAt ? Math.max(0, Math.round((endedAt - startedAt) / 1000)) : undefined;
+      
       await routeService.saveRoute({
         processedPoints,
         rawPoints,
@@ -288,15 +302,30 @@ export default function MapScreen() {
   
   const loadTerritories = useCallback(async () => {
     try {
+      const now = Date.now();
+      if (now - lastTerritoryFetchRef.current < 5000) {
+        return;
+      }
+      lastTerritoryFetchRef.current = now;
+      
       const fetched = await territoryService.fetchTerritories("all");
-      const owned = fetched.filter((feature) => {
-        const ownerId = feature.properties?.owner?._id || feature.properties?.owner?.id;
-        return ownerId === user?.id;
-      });
-      const others = fetched.filter((feature) => {
-        const ownerId = feature.properties?.owner?._id || feature.properties?.owner?.id;
-        return ownerId !== user?.id;
-      });
+      if (!Array.isArray(fetched)) {
+        console.warn("Invalid territories response");
+        return;
+      }
+      
+      const owned = [];
+      const others = [];
+      for (let i = 0; i < fetched.length; i++) {
+        const feature = fetched[i];
+        const ownerId = feature?.properties?.owner?._id || feature?.properties?.owner?.id;
+        if (ownerId === user?.id) {
+          owned.push(feature);
+        } else {
+          others.push(feature);
+        }
+      }
+      
       setOwnedTerritories(owned);
       setOtherTerritories(others);
       setUserTerritoriesCount(owned.length);
@@ -317,35 +346,46 @@ export default function MapScreen() {
     if (!feature?.geometry?.coordinates?.[0]?.length) {
       return;
     }
-    const processedPoints = processedSamplesRef.current.map((sample) => ({
-      lon: sample.coord[0],
-      lat: sample.coord[1],
-      ts: sample.ts,
-    }));
-    const rawPointsPayload = rawPointsRef.current.map((point) => ({
-      lon: point.lon,
-      lat: point.lat,
-      ts: point.ts,
-    }));
-    const encodedPolyline = polyline.encode(processedSamplesRef.current.map((sample) => [sample.coord[1], sample.coord[0]]));
-    const payload: ClaimTerritoryPayload = {
-      name: feature?.properties?.name ?? `Territory ${new Date().toLocaleTimeString()}`,
-      geometry: feature.geometry,
-      area: feature?.properties?.area ?? null,
-      perimeter: feature?.properties?.perimeter ?? null,
-      processedPoints,
-      rawPoints: rawPointsPayload,
-      encodedPolyline,
-      deviceInfo: {
-        platform: Platform.OS,
-        appVersion: Constants?.expoConfig?.version ?? "unknown",
-      },
-    };
+    
     try {
+      const processedPoints = processedSamplesRef.current.map((sample) => ({
+        lon: sample.coord[0],
+        lat: sample.coord[1],
+        ts: sample.ts,
+      }));
+      const rawPointsPayload = rawPointsRef.current.map((point) => ({
+        lon: point.lon,
+        lat: point.lat,
+        ts: point.ts,
+      }));
+      
+      let encodedPolyline = "";
+      if (processedSamplesRef.current.length > 0) {
+        try {
+          encodedPolyline = polyline.encode(processedSamplesRef.current.map((sample) => [sample.coord[1], sample.coord[0]]));
+        } catch (encodeErr) {
+          console.warn("Territory polyline encoding failed", encodeErr);
+        }
+      }
+      
+      const payload: ClaimTerritoryPayload = {
+        name: feature?.properties?.name ?? `Territory ${new Date().toLocaleTimeString()}`,
+        geometry: feature.geometry,
+        area: feature?.properties?.area ?? null,
+        perimeter: feature?.properties?.perimeter ?? null,
+        processedPoints,
+        rawPoints: rawPointsPayload,
+        encodedPolyline,
+        deviceInfo: {
+          platform: Platform.OS,
+          appVersion: Constants?.expoConfig?.version ?? "unknown",
+        },
+      };
+      
       const saved = await territoryService.claimTerritory(payload);
       updateOwnedTerritories((prev) => [...prev, saved]);
     } catch (error: any) {
-      console.error(" Territory save failed", error);
+      console.error("Territory save failed", error);
       Alert.alert("Territory", error?.message ?? "Failed to save territory");
     }
   }, [updateOwnedTerritories]);
@@ -355,15 +395,24 @@ export default function MapScreen() {
       const lat = loc.coords.latitude;
       const lon = loc.coords.longitude;
       const ts = loc.timestamp ?? Date.now();
+      
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return;
+      }
+      
       rawPointsRef.current.push({ lat, lon, ts });
+      
       if (loc.coords.accuracy && loc.coords.accuracy > MIN_ACCURACY_METERS) {
         return;
       }
+      
       if (!kalmanRef.current) {
         kalmanRef.current = new KalmanFilter2D();
       }
+      
       const [sLat, sLon] = kalmanRef.current.update(lat, lon, ts);
-      const lastSample = processedSamplesRef.current.at(-1);
+      
+      const lastSample = processedSamplesRef.current[processedSamplesRef.current.length - 1];
       if (lastSample) {
         const distanceMeters = haversineMeters(lastSample.coord[0], lastSample.coord[1], sLon, sLat);
         const dtSeconds = Math.max(1, (ts - lastSample.ts) / 1000);
@@ -373,20 +422,28 @@ export default function MapScreen() {
           return;
         }
       }
+      
       processedSamplesRef.current.push({ coord: [sLon, sLat], ts });
       setRoute(getProcessedRoute());
       setLocation([sLon, sLat]);
+      
       if (!routeStartRef.current) {
         routeStartRef.current = ts;
       }
+      
       if (processedSamplesRef.current.length % 10 === 0) {
         await persistRouteSnapshot();
       }
+      
       const engine = territoryEngineRef.current;
-      if (engine) {
-        const result = engine.handleNewCoordinate({ latitude: sLat, longitude: sLon, timestamp: ts });
-        if (result?.createdTerritory) {
-          await handleTerritoryPersist(result.createdTerritory);
+      if (engine && processedSamplesRef.current.length % 3 === 0) {
+        try {
+          const result = engine.handleNewCoordinate({ latitude: sLat, longitude: sLon, timestamp: ts });
+          if (result?.createdTerritory) {
+            await handleTerritoryPersist(result.createdTerritory);
+          }
+        } catch (engineErr) {
+          console.warn("Engine error", engineErr);
         }
       }
     } catch (error) {
@@ -531,23 +588,37 @@ export default function MapScreen() {
   
   const territoryLegend = useMemo(() => {
     const entries = new Map<string, { id: string; name: string; swatch: string; isCurrent: boolean }>();
-    combinedTerritories.forEach((territory) => {
-      const owner = territory.properties?.owner;
-      const ownerId = owner?._id || owner?.id || "unknown";
-      if (entries.has(ownerId)) {
-        return;
+    
+    if (!Array.isArray(combinedTerritories)) {
+      return [];
+    }
+    
+    for (let idx = 0; idx < combinedTerritories.length; idx++) {
+      const territory = combinedTerritories[idx];
+      if (!territory?.properties) {
+        continue;
       }
+      
+      const owner = territory.properties.owner;
+      const ownerId = owner?._id || owner?.id || "unknown";
+      
+      if (entries.has(ownerId)) {
+        continue;
+      }
+      
       const isCurrentOwner = ownerId !== "unknown" && ownerId === user?.id;
       const displayName = isCurrentOwner ? "You" : owner?.username || owner?.displayName || owner?.name || "Unknown Owner";
       const palette = getUserColor(ownerId === "unknown" ? undefined : ownerId, isCurrentOwner);
       const swatchColor = isCurrentOwner ? userTerritoryColor.stroke : palette.stroke;
+      
       entries.set(ownerId, {
         id: ownerId,
         name: displayName,
         swatch: swatchColor,
         isCurrent: isCurrentOwner,
       });
-    });
+    }
+    
     return Array.from(entries.values());
   }, [combinedTerritories, user?.id, userTerritoryColor.stroke]);
   
@@ -562,18 +633,20 @@ export default function MapScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background.primary }} edges={['bottom', 'left', 'right']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <View style={{ flex: 1, backgroundColor: colors.background.primary, paddingTop: insets.top + 8 }}>
-        <MapView
-          style={{ flex: 1 }}
-          styleURL={isDark ? MAPBOX_DARK_STYLE : MAPBOX_LIGHT_STYLE}
-          compassEnabled
-          pitchEnabled
-          rotateEnabled
-          zoomEnabled
-          onDidFinishLoadingStyle={() => {
-            console.log(`${isDark ? 'Dark' : 'Light'} map style loaded with custom 3D buildings`);
-          }}
-        >
-          {showBuildings && (
+        {/* Render MapView only if user is loaded to avoid crashes */}
+        {user ? (
+          <MapView
+            style={{ flex: 1 }}
+            styleURL={isDark ? MAPBOX_DARK_STYLE : MAPBOX_LIGHT_STYLE}
+            compassEnabled
+            pitchEnabled
+            rotateEnabled
+            zoomEnabled
+            onDidFinishLoadingStyle={() => {
+              console.log(`${isDark ? 'Dark' : 'Light'} map style loaded`);
+            }}
+          >
+            {showBuildings && (
             <VectorSource id={BUILDING_SOURCE_ID} url="mapbox://mapbox.mapbox-streets-v8">
               <FillExtrusionLayer
                 id={BUILDING_3D_LAYER_ID}
@@ -710,6 +783,11 @@ export default function MapScreen() {
             animationDuration={2000}
           />
         </MapView>
+        ) : (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background.primary }}>
+            <Text style={{ color: colors.text.primary }}>Loading user data...</Text>
+          </View>
+        )}
 
         <View style={[styles.controls, { left: insets.left + 16, top: insets.top + 20 }]}>
           <TouchableOpacity

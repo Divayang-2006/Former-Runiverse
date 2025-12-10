@@ -1,19 +1,18 @@
 import React from 'react';
+import { View, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
 import { useTheme } from '../../context/ThemeContext';
-import { Award, BarChart3, Home, MapPinned, User } from "lucide-react-native";
+import { LayoutDashboard, Map, Trophy, BarChart2, User } from "lucide-react-native";
 
 export default function TabLayout() {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const accentGradient = isDark ? colors.gradients.sunsetGlow : colors.gradients.tropicalParadise;
-  const activeTint = accentGradient[accentGradient.length - 1];
-  const inactiveTint = isDark ? colors.text.tertiary : colors.text.secondary;
-  const tabBackground = isDark ? colors.background.secondary : colors.background.elevated;
-  const borderTone = isDark ? colors.border.medium : colors.border.light;
-  const bottomInset = Math.max(insets.bottom, 18);
+  // Floating dock colors
+  const activeTint = '#10B981'; // emerald-500
+  const inactiveTint = isDark ? '#94A3B8' : '#64748B'; // slate-400/500
 
   return (
     <Tabs
@@ -21,37 +20,44 @@ export default function TabLayout() {
       screenOptions={{
         tabBarActiveTintColor: activeTint,
         tabBarInactiveTintColor: inactiveTint,
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '600',
-          marginTop: 2,
-        },
-        tabBarIconStyle: {
-          marginTop: 6,
-        },
+        tabBarShowLabel: false,
         tabBarStyle: {
           position: 'absolute',
-          left: 16,
-          right: 16,
           bottom: 0,
-          height: 68,
-          paddingHorizontal: 12,
-          paddingTop: 10,
-          paddingBottom: 12,
-          borderRadius: 28,
-          backgroundColor: tabBackground,
-          borderTopWidth: 1,
-          borderColor: borderTone,
-          shadowColor: isDark ? '#000000' : '#111827',
-          shadowOpacity: 0.12,
-          shadowOffset: { width: 0, height: 8 },
-          shadowRadius: 16,
-          elevation: 12,
+          left: 0,
+          right: 0,
+          height: 45 + insets.bottom,
+          paddingBottom: insets.bottom,
+          borderRadius: 0,
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
+          elevation: 0,
+          shadowOpacity: 0,
+        },
+        tabBarBackground: () => (
+          <BlurView
+            intensity={isDark ? 80 : 100}
+            tint={isDark ? 'dark' : 'light'}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: isDark ? 'rgba(2, 6, 23, 0.7)' : 'rgba(255, 255, 255, 0.7)',
+              borderTopWidth: 1,
+              borderTopColor: isDark ? 'rgba(71, 85, 105, 0.3)' : 'rgba(226, 232, 240, 0.8)',
+              overflow: 'hidden',
+            }}
+          />
+        ),
+        tabBarItemStyle: {
+          paddingTop: 7,
         },
         headerShown: false,
         tabBarHideOnKeyboard: true,
         sceneStyle: {
-          paddingBottom: 30,
+          paddingBottom: 0,
         },
       }}
     >
@@ -59,8 +65,42 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
-            <Home color={color} size={size ?? 24} strokeWidth={2.2} />
+          tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => (
+            <View style={{ 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              width: 48,
+              height: 48,
+            }}>
+              <View style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: focused ? (isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)') : 'transparent',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <LayoutDashboard 
+                  color={color} 
+                  size={22} 
+                  strokeWidth={focused ? 2.5 : 2} 
+                  fill={focused ? color : 'none'}
+                />
+              </View>
+              {focused && (
+                <View style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: 2,
+                  backgroundColor: activeTint,
+                  marginTop: 2,
+                  shadowColor: activeTint,
+                  shadowOpacity: 0.6,
+                  shadowRadius: 4,
+                  shadowOffset: { width: 0, height: 0 },
+                }} />
+              )}
+            </View>
           ),
         }}
       />
@@ -68,17 +108,80 @@ export default function TabLayout() {
         name="leaderboard"
         options={{
           title: 'Leaders',
-          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
-            <BarChart3 color={color} size={size ?? 24} strokeWidth={2.2} />
+          tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => (
+            <View style={{ 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              width: 48,
+              height: 48,
+            }}>
+              <View style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: focused ? (isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)') : 'transparent',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <BarChart2 
+                  color={color} 
+                  size={22} 
+                  strokeWidth={focused ? 2.5 : 2} 
+                  fill={focused ? color : 'none'}
+                />
+              </View>
+              {focused && (
+                <View style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: 2,
+                  backgroundColor: activeTint,
+                  marginTop: 2,
+                  shadowColor: activeTint,
+                  shadowOpacity: 0.6,
+                  shadowRadius: 4,
+                  shadowOffset: { width: 0, height: 0 },
+                }} />
+              )}
+            </View>
           ),
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
-          title: 'Run',
-          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
-            <MapPinned color={color} size={size ?? 24} strokeWidth={2.2} />
+          title: 'Map',
+          tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => (
+            <View style={{ 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              width: 52,
+              height: 52,
+              marginTop: -10,
+            }}>
+              <View style={{
+                width: 52,
+                height: 52,
+                borderRadius: 26,
+                backgroundColor: focused ? activeTint : (isDark ? 'rgba(16, 185, 129, 0.2)' : 'rgba(16, 185, 129, 0.15)'),
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 3,
+                borderColor: isDark ? 'rgba(2, 6, 23, 0.7)' : 'rgba(255, 255, 255, 0.7)',
+                shadowColor: activeTint,
+                shadowOpacity: focused ? 0.5 : 0.3,
+                shadowRadius: 16,
+                shadowOffset: { width: 0, height: 4 },
+                elevation: 8,
+              }}>
+                <Map 
+                  color={focused ? '#FFFFFF' : color} 
+                  size={26} 
+                  strokeWidth={2.5} 
+                  fill={focused ? '#FFFFFF' : 'none'}
+                />
+              </View>
+            </View>
           ),
         }}
       />
@@ -86,8 +189,42 @@ export default function TabLayout() {
         name="challenges"
         options={{
           title: 'Challenges',
-          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
-            <Award color={color} size={size ?? 24} strokeWidth={2.2} />
+          tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => (
+            <View style={{ 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              width: 48,
+              height: 48,
+            }}>
+              <View style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: focused ? (isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)') : 'transparent',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <Trophy 
+                  color={color} 
+                  size={22} 
+                  strokeWidth={focused ? 2.5 : 2} 
+                  fill={focused ? color : 'none'}
+                />
+              </View>
+              {focused && (
+                <View style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: 2,
+                  backgroundColor: activeTint,
+                  marginTop: 2,
+                  shadowColor: activeTint,
+                  shadowOpacity: 0.6,
+                  shadowRadius: 4,
+                  shadowOffset: { width: 0, height: 0 },
+                }} />
+              )}
+            </View>
           ),
         }}
       />
@@ -95,8 +232,42 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
-            <User color={color} size={size ?? 24} strokeWidth={2.2} />
+          tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => (
+            <View style={{ 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              width: 48,
+              height: 48,
+            }}>
+              <View style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: focused ? (isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)') : 'transparent',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <User 
+                  color={color} 
+                  size={22} 
+                  strokeWidth={focused ? 2.5 : 2} 
+                  fill={focused ? color : 'none'}
+                />
+              </View>
+              {focused && (
+                <View style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: 2,
+                  backgroundColor: activeTint,
+                  marginTop: 2,
+                  shadowColor: activeTint,
+                  shadowOpacity: 0.6,
+                  shadowRadius: 4,
+                  shadowOffset: { width: 0, height: 0 },
+                }} />
+              )}
+            </View>
           ),
         }}
       />

@@ -16,6 +16,8 @@ const userSchema = new mongoose.Schema({
   multiplier: { type: Number, default: 1 },
   city: { type: String, trim: true },
   badges: [{ type: mongoose.Schema.Types.ObjectId, ref: "Badge" }],
+  friends: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", default: [] }],
+  lastActive: { type: Date, default: Date.now },
   location: { type: { type: String, enum: ["Point"], default: "Point" }, coordinates: { type: [Number], default: [0, 0] } },
   oauthProvider: { type: String },
   oauthId: { type: String, index: true },
@@ -26,6 +28,8 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 userSchema.index({ location: "2dsphere" });
+userSchema.index({ username: 1, lastActive: -1 });
+userSchema.index({ username: "text" });
 
 // Stat update methods
 userSchema.methods.ensureDailyReset = function (referenceDate = new Date()) {

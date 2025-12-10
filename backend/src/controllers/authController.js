@@ -80,6 +80,9 @@ export const loginUser = async (req, res) => {
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
+    user.lastActive = new Date();
+    await user.save({ validateModifiedOnly: true });
+
     const token = signToken(user._id);
 
     return res.json({
