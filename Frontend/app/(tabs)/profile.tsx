@@ -15,6 +15,7 @@ import { AvatarUploadResponse } from "@/store/types";
 import Animated, { FadeInDown, FadeInUp, FadeOutDown, Layout } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import AlertCard from '@/components/AlertCard';
+import CalendarSection from '@/components/CalendarSection';
 
 const ProfileScreen = () => {
   const { theme, colors, isDark } = useTheme();
@@ -390,6 +391,10 @@ const ProfileScreen = () => {
               </Pressable>
             </Link>
           </Animated.View>
+
+          {/* Calendar */}
+          <CalendarSection />
+
         </View>
       </ScrollView>
     </SafeAreaView>
