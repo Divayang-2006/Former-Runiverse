@@ -8,14 +8,15 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "MAPBOX_API_KEY_1": "@MAPBOX_API_KEY_1",
-        "MAPBOX_API_KEY_2": "@MAPBOX_API_KEY_2",
         "MAPBOX_DOWNLOAD_TOKEN": "@MAPBOX_DOWNLOAD_TOKEN",
         "EXPO_PUBLIC_API_BASE_URL": "@EXPO_PUBLIC_API_BASE_URL"
       }
     },
     "preview": {
       "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "MAPBOX_DOWNLOAD_TOKEN": "@MAPBOX_DOWNLOAD_TOKEN",
         "EXPO_PUBLIC_API_BASE_URL": "@EXPO_PUBLIC_API_BASE_URL"

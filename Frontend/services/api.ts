@@ -30,7 +30,7 @@ async function handleResponse<T>(res: Response, path: string): Promise<T> {
     const text = await res.text();
     data = text ? JSON.parse(text) : {};
   } catch (err) {
-    console.warn(`⚠️ Failed to parse response from ${path}`);
+    console.warn(` Failed to parse response from ${path}`);
   }
 
   if (!res.ok) {
