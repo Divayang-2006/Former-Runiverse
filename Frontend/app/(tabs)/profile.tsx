@@ -16,6 +16,7 @@ import Animated, { FadeInDown, FadeInUp, FadeOutDown, Layout } from 'react-nativ
 import { LinearGradient } from 'expo-linear-gradient';
 import AlertCard from '@/components/AlertCard';
 import CalendarSection from '@/components/CalendarSection';
+import ActivityTrendCard from '@/components/ActivityTrendCard';
 
 const ProfileScreen = () => {
   const { colors, isDark } = useTheme();
@@ -227,6 +228,13 @@ const ProfileScreen = () => {
                 </Link>
               </LinearGradient>
             </View>
+          </Animated.View>
+
+          <Animated.View
+            entering={FadeInDown.duration(600).delay(320).springify()}
+            layout={Layout.springify()}
+          >
+            <ActivityTrendCard />
           </Animated.View>
 
           {loading && (
