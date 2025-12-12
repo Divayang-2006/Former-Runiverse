@@ -67,7 +67,13 @@ export default ({ config }) => {
             [
                '@rnmapbox/maps',
                {
-                  RNMapboxMapsDownloadToken: process.env.MAPBOX_DOWNLOAD_TOKEN,
+                  RNMapboxMapsImpl: 'mapbox',
+                  android: {
+                     accessToken: process.env.MAPBOX_DOWNLOAD_TOKEN,
+                  },
+                  ios: {
+                     accessToken: process.env.MAPBOX_DOWNLOAD_TOKEN,
+                  },
                },
             ],
             [

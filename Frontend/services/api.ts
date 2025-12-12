@@ -8,10 +8,8 @@ const resolveBaseUrl = (): string => {
   const configUrl = Constants.expoConfig?.extra?.apiUrl as string | undefined;
   if (envUrl) return normalize(envUrl);
   if (configUrl) return normalize(configUrl);
-  return "https://runiverse.vercel.app";
+  return "https://runiverse.onrender.com";
 };
-
-// You can swap this line to use `resolveBaseUrl()` later
 const BASE_URL = "https://runiverse.onrender.com";
 
 async function handleResponse<T>(res: Response, path: string): Promise<T> {
@@ -21,7 +19,7 @@ async function handleResponse<T>(res: Response, path: string): Promise<T> {
     const text = await res.text();
     data = text ? JSON.parse(text) : {};
   } catch (err) {
-    console.warn(`⚠️ Failed to parse response from ${path}`);
+    console.warn(` Failed to parse response from ${path}`);
   }
 
   if (!res.ok) {

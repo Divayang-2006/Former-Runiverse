@@ -4,7 +4,7 @@ import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '../../context/ThemeContext';
-import { LayoutDashboard, Map, Trophy, BarChart2, User } from "lucide-react-native";
+import { LayoutDashboard, Map, Trophy, Activity, User } from "lucide-react-native";
 
 export default function TabLayout() {
   const { colors, isDark } = useTheme();
@@ -105,9 +105,9 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="leaderboard"
+        name="map"
         options={{
-          title: 'Leaders',
+          title: 'Map',
           tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => (
             <View style={{ 
               alignItems: 'center', 
@@ -123,7 +123,7 @@ export default function TabLayout() {
                 alignItems: 'center',
                 justifyContent: 'center',
               }}>
-                <BarChart2 
+                <Map 
                   color={color} 
                   size={22} 
                   strokeWidth={focused ? 2.5 : 2} 
@@ -148,39 +148,44 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="map"
+        name="activity"
         options={{
-          title: 'Map',
+          title: 'Activity',
           tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => (
             <View style={{ 
               alignItems: 'center', 
               justifyContent: 'center',
-              width: 52,
-              height: 52,
-              marginTop: -10,
+              width: 48,
+              height: 48,
             }}>
               <View style={{
-                width: 52,
-                height: 52,
-                borderRadius: 26,
-                backgroundColor: focused ? activeTint : (isDark ? 'rgba(16, 185, 129, 0.2)' : 'rgba(16, 185, 129, 0.15)'),
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: focused ? (isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)') : 'transparent',
                 alignItems: 'center',
                 justifyContent: 'center',
-                borderWidth: 3,
-                borderColor: isDark ? 'rgba(2, 6, 23, 0.7)' : 'rgba(255, 255, 255, 0.7)',
-                shadowColor: activeTint,
-                shadowOpacity: focused ? 0.5 : 0.3,
-                shadowRadius: 16,
-                shadowOffset: { width: 0, height: 4 },
-                elevation: 8,
               }}>
-                <Map 
-                  color={focused ? '#FFFFFF' : color} 
-                  size={26} 
-                  strokeWidth={2.5} 
-                  fill={focused ? '#FFFFFF' : 'none'}
+                <Activity 
+                  color={color} 
+                  size={22} 
+                  strokeWidth={focused ? 2.5 : 2} 
+                  fill={focused ? color : 'none'}
                 />
               </View>
+              {focused && (
+                <View style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: 2,
+                  backgroundColor: activeTint,
+                  marginTop: 2,
+                  shadowColor: activeTint,
+                  shadowOpacity: 0.6,
+                  shadowRadius: 4,
+                  shadowOffset: { width: 0, height: 0 },
+                }} />
+              )}
             </View>
           ),
         }}
