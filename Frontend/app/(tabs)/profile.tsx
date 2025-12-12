@@ -56,7 +56,7 @@ const ProfileScreen = () => {
 
   const profileOptions: Array<{ icon: keyof typeof FontAwesome5.glyphMap; text: string; href?: Href }> = [
     { icon: 'running', text: 'Activities', href: '/activities' },
-    { icon: 'chart-line', text: 'Statistics',  },
+    { icon: 'chart-line', text: 'Statistics', href: '/statistics' },
     { icon: 'trophy', text: 'My Achievements', href: '/achievements' },
     { icon: 'route', text: 'Route History' },
     { icon: 'user-friends', text: 'Friends & Community' },
@@ -256,25 +256,6 @@ const ProfileScreen = () => {
             </Animated.View>
           )}
 
-          <Animated.View 
-            entering={FadeInDown.duration(600).delay(400).springify()}
-            layout={Layout.springify()}
-            className="rounded-3xl p-6 mb-4"
-            style={{
-              backgroundColor: isDarkMode ? colors.background.elevated : colors.background.secondary,
-              shadowColor: isDarkMode ? '#000' : '#1a1a1a',
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: isDarkMode ? 0.5 : 0.15,
-              shadowRadius: 16,
-              elevation: 12,
-            }}
-          >
-            <Text className="text-[20px] font-bold mb-5 tracking-tight" style={{ color: colors.text.primary }}>Account Details</Text>
-            <InfoRow label="Email" value={user?.email || 'Not provided'} />
-            <View className="mt-4">
-              <InfoRow label="Member since" value={user ? new Date().getFullYear().toString() : '—'} />
-            </View>
-          </Animated.View>
 
           <Animated.View 
             entering={FadeInDown.duration(600).delay(500).springify()}
