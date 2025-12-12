@@ -1,152 +1,333 @@
 import type { Request, Response } from "express";
-import Route, { type IRoutePoint } from "../models/Route.js";
+import { Types } from "mongoose";
+import Route, { type RouteDocument } from "../models/Route.js";
+import RouteSegment from "../models/RouteSegment.js";
+import RouteMatch from "../models/RouteMatch.js";
+import SavedRoute from "../models/SavedRoute.js";
 import type { UserDocument } from "../models/User.js";
 
 interface AuthenticatedRequest extends Request {
   user?: UserDocument;
 }
 
-interface RoutePointInput {
-  lat?: unknown;
-  lon?: unknown;
-  latitude?: unknown;
-  longitude?: unknown;
-  ts?: unknown;
-  recordedAt?: unknown;
-  elevation?: unknown;
+interface CreateRouteBody {
+  name?: string;
+  description?: string | null;
+  distance?: number;
+  elevationGain?: number;
+  popularityScore?: number;
+  isPublic?: boolean;
+  loop?: boolean;
+  boundingBox?: Record<string, unknown> | null;
+  simplifiedPath?: Record<string, unknown> | null;
+  segments?: Array<{
+    segmentIndex?: number;
+    coordinates?: Record<string, unknown> | unknown[];
+  }>;
 }
 
-interface SaveRouteBody {
-  rawPoints?: RoutePointInput[];
-  processedPoints?: RoutePointInput[];
-  encodedPolyline?: string;
-  startedAt?: unknown;
-  endedAt?: unknown;
-  distanceMeters?: unknown;
-  durationSeconds?: unknown;
+interface CreateMatchBody {
+  activityId?: string;
+  routeId?: string;
+  similarityScore?: number;
 }
 
-const toNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const parsed = Number.parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
+interface DetectRoutesBody {
+  activityId?: string;
+  limit?: number;
+}
 
-const toDate = (value: unknown): Date | null => {
-  if (!value && value !== 0) {
-    return null;
-  }
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value;
-  }
-  if (typeof value === "number") {
-    const fromNumber = new Date(value);
-    return Number.isNaN(fromNumber.getTime()) ? null : fromNumber;
-  }
-  if (typeof value === "string") {
-    const fromString = new Date(value);
-    return Number.isNaN(fromString.getTime()) ? null : fromString;
-  }
-  return null;
-};
-
-const normalizePointList = (input?: RoutePointInput[]): IRoutePoint[] => {
-  if (!Array.isArray(input)) {
+const parseSegments = (segments?: CreateRouteBody["segments"]) => {
+  if (!Array.isArray(segments)) {
     return [];
   }
 
-  return input
-    .map((point) => {
-      const latitude = toNumber(point.lat ?? point.latitude);
-      const longitude = toNumber(point.lon ?? point.longitude);
-      if (latitude === null || longitude === null) {
+  return segments
+    .map((segment) => {
+      const segmentIndex = typeof segment.segmentIndex === "number" && segment.segmentIndex >= 0 ? segment.segmentIndex : null;
+      if (segmentIndex === null) {
         return null;
       }
 
-      const recordedAt = toDate(point.ts ?? point.recordedAt);
-      const elevation = toNumber(point.elevation ?? null);
-
-      const routePoint: IRoutePoint = {
-        latitude,
-        longitude,
-        recordedAt,
-      };
-
-      if (elevation !== null) {
-        routePoint.elevation = elevation;
+      if (segment.coordinates === undefined || segment.coordinates === null) {
+        return null;
       }
 
-      return routePoint;
+      return {
+        segmentIndex,
+        coordinates: segment.coordinates,
+      };
     })
-    .filter((point): point is IRoutePoint => Boolean(point));
+    .filter((value): value is { segmentIndex: number; coordinates: Record<string, unknown> | unknown[] } => value !== null);
 };
 
-export const saveRoute = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
+const loadSegmentsForRoutes = async (routeIds: Types.ObjectId[]) => {
+  if (routeIds.length === 0) {
+    return new Map<string, Array<{ segmentIndex: number; coordinates: unknown }>>();
+  }
+
+  const segments = await RouteSegment.find({ routeId: { $in: routeIds } }).sort({ routeId: 1, segmentIndex: 1 });
+  const byRoute = new Map<string, Array<{ segmentIndex: number; coordinates: unknown }>>();
+
+  segments.forEach((segment) => {
+    const key = segment.routeId.toString();
+    const existing = byRoute.get(key) ?? [];
+    existing.push({ segmentIndex: segment.segmentIndex, coordinates: segment.coordinates });
+    byRoute.set(key, existing);
+  });
+
+  return byRoute;
+};
+
+const serializeRoute = (route: RouteDocument, segments: Array<{ segmentIndex: number; coordinates: unknown }> = []) => ({
+  id: route._id.toString(),
+  creatorId: route.creatorId.toString(),
+  name: route.name,
+  description: route.description ?? null,
+  distance: route.distance,
+  elevationGain: route.elevationGain,
+  popularityScore: route.popularityScore,
+  isPublic: route.isPublic,
+  loop: route.loop,
+  boundingBox: route.boundingBox ?? null,
+  simplifiedPath: route.simplifiedPath ?? null,
+  createdAt: route.createdAt,
+  updatedAt: route.updatedAt,
+  segments,
+});
+
+export const createRoute = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
   try {
     if (!req.user?._id) {
-      return res.status(401).json({ msg: "Unauthorized" });
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const body = req.body as SaveRouteBody;
+    const {
+      name,
+      description = null,
+      distance,
+      elevationGain,
+      popularityScore = 0,
+      isPublic = true,
+      loop = false,
+      boundingBox = null,
+      simplifiedPath = null,
+      segments,
+    } = req.body as CreateRouteBody;
 
-    const startedAt = toDate(body.startedAt);
-    const endedAt = toDate(body.endedAt);
-    const distanceMeters = toNumber(body.distanceMeters);
-    const durationSeconds = toNumber(body.durationSeconds);
-
-    if (!startedAt) {
-      return res.status(400).json({ msg: "startedAt is required" });
-    }
-
-    if (distanceMeters === null) {
-      return res.status(400).json({ msg: "distanceMeters is required" });
-    }
-
-    if (durationSeconds === null) {
-      return res.status(400).json({ msg: "durationSeconds is required" });
-    }
-
-    if (distanceMeters < 0) {
-      return res.status(400).json({ msg: "distanceMeters must be non-negative" });
-    }
-
-    if (durationSeconds < 0) {
-      return res.status(400).json({ msg: "durationSeconds must be non-negative" });
-    }
-
-    const rawPoints = normalizePointList(body.rawPoints);
-    const processedPoints = normalizePointList(body.processedPoints);
-    const encodedPolyline =
-      typeof body.encodedPolyline === "string" && body.encodedPolyline.trim().length > 0
-        ? body.encodedPolyline.trim()
-        : undefined;
-
-    if (rawPoints.length === 0 && processedPoints.length === 0) {
-      return res.status(400).json({ msg: "At least one of rawPoints or processedPoints must contain coordinates" });
+    if (!name || typeof distance !== "number" || typeof elevationGain !== "number") {
+      return res.status(400).json({ message: "name, distance, and elevationGain are required" });
     }
 
     const route = await Route.create({
-      user: req.user._id,
-      rawPoints,
-      processedPoints,
-      encodedPolyline,
-      startedAt,
-      endedAt,
-      distanceMeters,
-      durationSeconds,
+      creatorId: req.user._id,
+      name: name.trim(),
+      description: description ?? null,
+      distance,
+      elevationGain,
+      popularityScore: popularityScore ?? 0,
+      isPublic,
+      loop,
+      boundingBox,
+      simplifiedPath,
     });
 
-    return res.status(201).json({ success: true, data: route });
+    const normalizedSegments = parseSegments(segments);
+    if (normalizedSegments.length > 0) {
+      await RouteSegment.insertMany(
+        normalizedSegments.map((segment) => ({
+          routeId: route._id,
+          segmentIndex: segment.segmentIndex,
+          coordinates: segment.coordinates,
+        }))
+      );
+    }
+
+    return res.status(201).json({ success: true, data: serializeRoute(route, normalizedSegments) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to save route";
-    console.error("Save route error:", error);
-    return res.status(500).json({ success: false, msg: message });
+    console.error("createRoute error:", error);
+    return res.status(500).json({ message: "Failed to create route" });
   }
 };
 
-export default { saveRoute };
+export const detectRoutes = async (
+  req: AuthenticatedRequest & Request<unknown, unknown, DetectRoutesBody> ,
+  res: Response
+): Promise<Response> => {
+  try {
+    const max = Math.min(req.body.limit ?? 10, 25);
+
+    const routes = await Route.find({ isPublic: true }).sort({ popularityScore: -1, createdAt: -1 }).limit(max);
+    const segmentsByRoute = await loadSegmentsForRoutes(routes.map((route) => route._id));
+
+    let matches = [] as Array<{ routeId: string; similarityScore: number; matchedAt: Date }>;
+    if (req.body.activityId && Types.ObjectId.isValid(req.body.activityId)) {
+      const activityMatches = await RouteMatch.find({ activityId: req.body.activityId })
+        .sort({ similarityScore: -1 })
+        .limit(max);
+
+      matches = activityMatches.map((match) => ({
+        routeId: match.routeId.toString(),
+        similarityScore: match.similarityScore,
+        matchedAt: match.matchedAt,
+      }));
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        routes: routes.map((route) => serializeRoute(route, segmentsByRoute.get(route._id.toString()) ?? [])),
+        matches,
+      },
+    });
+  } catch (error) {
+    console.error("detectRoutes error:", error);
+    return res.status(500).json({ message: "Failed to detect routes" });
+  }
+};
+
+export const getNearbyRoutes = async (
+  req: Request<unknown, unknown, unknown, { limit?: string; includePrivate?: string; creatorId?: string }> ,
+  res: Response
+): Promise<Response> => {
+  try {
+    const { limit, includePrivate, creatorId } = req.query;
+    const max = Math.min(Number.parseInt(limit ?? "20", 10) || 20, 100);
+
+    const filter: Record<string, unknown> = {};
+    if (creatorId && Types.ObjectId.isValid(creatorId)) {
+      filter.creatorId = creatorId;
+    }
+    if (includePrivate !== "true") {
+      filter.isPublic = true;
+    }
+
+    const routes = await Route.find(filter).sort({ popularityScore: -1, createdAt: -1 }).limit(max);
+    const segmentsByRoute = await loadSegmentsForRoutes(routes.map((route) => route._id));
+
+    return res.json({
+      success: true,
+      data: routes.map((route) => serializeRoute(route, segmentsByRoute.get(route._id.toString()) ?? [])),
+    });
+  } catch (error) {
+    console.error("getNearbyRoutes error:", error);
+    return res.status(500).json({ message: "Failed to load nearby routes" });
+  }
+};
+
+export const getRouteById = async (req: Request<{ id: string }> , res: Response): Promise<Response> => {
+  try {
+    const route = await Route.findById(req.params.id);
+    if (!route) {
+      return res.status(404).json({ message: "Route not found" });
+    }
+
+    const segments = await RouteSegment.find({ routeId: route._id }).sort({ segmentIndex: 1 });
+
+    return res.json({
+      success: true,
+      data: serializeRoute(
+        route,
+        segments.map((segment) => ({ segmentIndex: segment.segmentIndex, coordinates: segment.coordinates }))
+      ),
+    });
+  } catch (error) {
+    console.error("getRouteById error:", error);
+    return res.status(500).json({ message: "Failed to fetch route" });
+  }
+};
+
+export const saveRouteForUser = async (
+  req: AuthenticatedRequest & Request<{ id: string }> ,
+  res: Response
+): Promise<Response> => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const route = await Route.findById(req.params.id);
+    if (!route) {
+      return res.status(404).json({ message: "Route not found" });
+    }
+
+    const saved = await SavedRoute.findOneAndUpdate(
+      { userId: req.user._id, routeId: route._id },
+      { $set: { savedAt: new Date() } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        routeId: saved.routeId.toString(),
+        savedAt: saved.savedAt,
+      },
+    });
+  } catch (error) {
+    console.error("saveRouteForUser error:", error);
+    return res.status(500).json({ message: "Failed to save route" });
+  }
+};
+
+export const listRoutesByUser = async (req: Request<{ id: string }, unknown, unknown, { limit?: string }> , res: Response): Promise<Response> => {
+  try {
+    const { limit } = req.query;
+    const max = Math.min(Number.parseInt(limit ?? "25", 10) || 25, 100);
+
+    if (!Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid user id" });
+    }
+
+    const routes = await Route.find({ creatorId: req.params.id })
+      .sort({ createdAt: -1 })
+      .limit(max);
+
+    const segmentsByRoute = await loadSegmentsForRoutes(routes.map((route) => route._id));
+
+    return res.json({
+      success: true,
+      data: routes.map((route) => serializeRoute(route, segmentsByRoute.get(route._id.toString()) ?? [])),
+    });
+  } catch (error) {
+    console.error("listRoutesByUser error:", error);
+    return res.status(500).json({ message: "Failed to list user routes" });
+  }
+};
+
+export const createRouteMatch = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { activityId, routeId, similarityScore } = req.body as CreateMatchBody;
+
+    if (!activityId || !routeId || typeof similarityScore !== "number") {
+      return res.status(400).json({ message: "activityId, routeId, and similarityScore are required" });
+    }
+
+    const match = await RouteMatch.findOneAndUpdate(
+      { activityId, routeId },
+      { $set: { similarityScore, matchedAt: new Date() } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    await Route.findByIdAndUpdate(routeId, { $inc: { popularityScore: similarityScore } }).catch(() => undefined);
+
+    return res.status(201).json({ success: true, data: match });
+  } catch (error) {
+    console.error("createRouteMatch error:", error);
+    return res.status(500).json({ message: "Failed to record route match" });
+  }
+};
+
+export default {
+  createRoute,
+  detectRoutes,
+  getNearbyRoutes,
+  getRouteById,
+  saveRouteForUser,
+  listRoutesByUser,
+  createRouteMatch,
+};

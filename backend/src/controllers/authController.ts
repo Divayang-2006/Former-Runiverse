@@ -1,25 +1,24 @@
 import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import jwt, { SignOptions } from "jsonwebtoken";
 import User, { UserDocument } from "../models/User.js";
+import { signAccessToken } from "../services/tokenService.js";
+import { buildUserSearchKeywords } from "../services/userService.js";
 
 interface RegisterRequestBody {
   username?: string;
   email?: string;
   password?: string;
-  lastName?: string;
-  mobileNumber?: string;
 }
 
 interface LoginRequestBody {
-  email?: string;
+  identifier?: string;
   password?: string;
 }
 
 interface AuthSuccessResponse {
   success: true;
   message: string;
-  token: string;
+  token?: string;
   user: SanitizedUser;
 }
 
@@ -28,44 +27,32 @@ interface AuthErrorResponse {
   message: string;
 }
 
+interface AuthenticatedRequest extends Request {
+  user?: UserDocument;
+}
+
 interface SanitizedUser {
   id: string;
   username: string;
   email: string;
-  displayName?: string;
-  avatar?: string | null;
-  avatarUrl?: string;
-  steps: number;
-  distance: number;
-  territories: number;
-  streak: number;
-  multiplier: number;
+  displayName: string | null;
+  avatar: string | null;
+  bio: string | null;
+  mobileNumber: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
-
-const signToken = (userId: string): string => {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error("JWT_SECRET is not configured");
-  }
-
-  const expiresIn = (process.env.JWT_EXPIRATION ?? "7d") as SignOptions["expiresIn"];
-  const options: SignOptions = { expiresIn };
-
-  return jwt.sign({ id: userId }, secret, options);
-};
 
 const sanitizeUser = (user: UserDocument): SanitizedUser => ({
   id: user._id.toString(),
   username: user.username,
   email: user.email,
-  displayName: user.displayName ?? undefined,
+  displayName: user.displayName ?? null,
   avatar: user.avatar ?? null,
-  avatarUrl: user.avatarUrl ?? undefined,
-  steps: user.steps,
-  distance: user.distance,
-  territories: user.territories,
-  streak: user.streak,
-  multiplier: user.multiplier,
+  bio: user.bio ?? null,
+  mobileNumber: user.mobileNumber ?? null,
+  createdAt: user.createdAt,
+  updatedAt: user.updatedAt,
 });
 
 export const registerUser = async (
@@ -73,10 +60,10 @@ export const registerUser = async (
   res: Response<AuthSuccessResponse | AuthErrorResponse>
 ): Promise<Response<AuthSuccessResponse | AuthErrorResponse>> => {
   try {
-    const { username, email, password, lastName, mobileNumber } = req.body;
+    const { username, email, password } = req.body;
 
     if (!username || !email || !password) {
-      return res.status(400).json({ success: false, message: "Username, email and password are required" });
+      return res.status(400).json({ success: false, message: "username, email, and password are required" });
     }
 
     const normalizedEmail = email.toLowerCase();
@@ -92,11 +79,10 @@ export const registerUser = async (
       username,
       email: normalizedEmail,
       password: hashedPassword,
-      lastName,
-      mobileNumber,
+      searchKeywords: buildUserSearchKeywords(username),
     });
 
-    const token = signToken(user._id.toString());
+    const token = signAccessToken(user._id.toString());
 
     return res.status(201).json({
       success: true,
@@ -110,19 +96,54 @@ export const registerUser = async (
   }
 };
 
+export const getAuthenticatedUser = async (
+  req: AuthenticatedRequest,
+  res: Response<AuthSuccessResponse | AuthErrorResponse>
+): Promise<Response<AuthSuccessResponse | AuthErrorResponse>> => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const freshUser = await User.findById(req.user._id);
+    if (!freshUser) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: "Authenticated user",
+      user: sanitizeUser(freshUser),
+    });
+  } catch (error) {
+    console.error("getAuthenticatedUser error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch authenticated user" });
+  }
+};
+
 export const loginUser = async (
   req: Request<unknown, unknown, LoginRequestBody>,
   res: Response<AuthSuccessResponse | AuthErrorResponse>
 ): Promise<Response<AuthSuccessResponse | AuthErrorResponse>> => {
   try {
-    const { email, password } = req.body;
+    const { identifier, password } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: "Email and password are required" });
+    if (!identifier || !password) {
+      return res.status(400).json({ success: false, message: "Identifier and password are required" });
     }
 
-    const normalizedEmail = email.toLowerCase();
-    const user = await User.findOne({ email: normalizedEmail });
+    const trimmedIdentifier = identifier.trim();
+    if (trimmedIdentifier.length === 0) {
+      return res.status(400).json({ success: false, message: "Identifier and password are required" });
+    }
+
+    const normalizedEmail = trimmedIdentifier.toLowerCase();
+
+    const user = await User.findOne(
+      trimmedIdentifier.includes("@")
+        ? { email: normalizedEmail }
+        : { username: trimmedIdentifier }
+    );
     if (!user) {
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
@@ -132,7 +153,7 @@ export const loginUser = async (
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
-    const token = signToken(user._id.toString());
+    const token = signAccessToken(user._id.toString());
 
     return res.json({
       success: true,

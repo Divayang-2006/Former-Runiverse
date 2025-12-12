@@ -1,27 +1,22 @@
-import { beforeAll, describe, expect, it } from "@jest/globals";
+import { describe, expect, it } from "@jest/globals";
 import request from "supertest";
 import bcrypt from "bcryptjs";
-import app from "../../dist/app.js";
-import User from "../../dist/models/User.js";
-import "../../dist/models/Badge.js";
-
-const TEST_SECRET = "integration-secret";
+import app from "../../src/app.js";
+import User from "../../src/models/User.js";
 
 const registerPayload = (overrides: Record<string, unknown> = {}) => ({
-  username: "runner" + Math.random().toString(16).slice(2, 6),
-  email: `runner${Math.random().toString(16).slice(2, 6)}@example.com`,
+  username: `runner-${Math.random().toString(16).slice(2, 6)}`,
+  email: `runner-${Math.random().toString(16).slice(2, 6)}@example.com`,
   password: "Passw0rd!",
-  lastName: "Doe",
-  mobileNumber: "1234567890",
   ...overrides,
 });
 
-describe("Auth & User flows", () => {
-  beforeAll(() => {
-    process.env.JWT_SECRET = TEST_SECRET;
-    process.env.JWT_EXPIRATION = "1h";
-  });
+const extractUser = (responseBody: unknown) => {
+  const body = responseBody as { user?: Record<string, unknown>; data?: Record<string, unknown> };
+  return body.user ?? body.data ?? {};
+};
 
+describe("Auth & User flows", () => {
   describe("POST /api/auth/register", () => {
     it("registers a new user and returns a token", async () => {
       const payload = registerPayload();
@@ -29,16 +24,15 @@ describe("Auth & User flows", () => {
       const response = await request(app).post("/api/auth/register").send(payload);
 
       expect(response.status).toBe(201);
-      expect(response.body).toMatchObject({
-        success: true,
-        message: "Registration successful",
-      });
+      expect(response.body).toMatchObject({ success: true, message: "Registration successful" });
       expect(typeof response.body.token).toBe("string");
-      expect(response.body.user).toMatchObject({
+
+      const user = extractUser(response.body);
+      expect(user).toMatchObject({
         username: payload.username,
         email: payload.email.toLowerCase(),
       });
-      expect(response.body.user).not.toHaveProperty("password");
+      expect(user).not.toHaveProperty("password");
 
       const createdUser = await User.findOne({ email: payload.email.toLowerCase() }).lean();
       expect(createdUser).not.toBeNull();
@@ -49,7 +43,7 @@ describe("Auth & User flows", () => {
       const response = await request(app).post("/api/auth/register").send({ email: "missing@example.com" });
 
       expect(response.status).toBe(400);
-      expect(response.body).toMatchObject({ success: false });
+      expect(response.body).toMatchObject({ success: false, message: "username, email, and password are required" });
     });
 
     it("prevents duplicate registrations", async () => {
@@ -70,12 +64,13 @@ describe("Auth & User flows", () => {
 
       const response = await request(app)
         .post("/api/auth/login")
-        .send({ email: payload.email, password: payload.password });
+        .send({ identifier: payload.email, password: payload.password });
 
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({ success: true, message: "Login successful" });
-      expect(response.body.user).toMatchObject({ email: payload.email.toLowerCase() });
-      expect(response.body.user).not.toHaveProperty("password");
+      const user = extractUser(response.body);
+      expect(user).toMatchObject({ email: payload.email.toLowerCase(), username: payload.username });
+      expect(user).not.toHaveProperty("password");
     });
 
     it("rejects invalid credentials", async () => {
@@ -84,7 +79,7 @@ describe("Auth & User flows", () => {
 
       const response = await request(app)
         .post("/api/auth/login")
-        .send({ email: payload.email, password: "incorrect" });
+        .send({ identifier: payload.email, password: "incorrect" });
 
       expect(response.status).toBe(401);
       expect(response.body).toMatchObject({ success: false, message: "Invalid credentials" });
@@ -95,28 +90,26 @@ describe("Auth & User flows", () => {
     const authenticate = async () => {
       const payload = registerPayload({ username: "profileuser", email: "profile@example.com" });
       const registerResponse = await request(app).post("/api/auth/register").send(payload).expect(201);
-      return { token: registerResponse.body.token, payload };
+      return { token: registerResponse.body.token as string, payload };
     };
 
     it("requires a bearer token", async () => {
-      const response = await request(app).get("/api/users/me");
+      const response = await request(app).get("/api/auth/me");
       expect(response.status).toBe(401);
-      expect(response.body).toMatchObject({ msg: "No token, authorization denied" });
+      expect(response.body).toMatchObject({ success: false, message: "No token provided" });
     });
 
     it("returns the authenticated user's profile", async () => {
       const { token, payload } = await authenticate();
 
       const response = await request(app)
-        .get("/api/users/me")
-        .set("Authorization", `Bearer ${token}`);
+        .get("/api/auth/me")
+        .set("Authorization", `Bearer ${token}`)
+        .expect(200);
 
-      expect(response.status).toBe(200);
-      expect(response.body).toMatchObject({
-        email: payload.email.toLowerCase(),
-        username: payload.username,
-      });
-      expect(response.body).not.toHaveProperty("password");
+      expect(response.body).toMatchObject({ success: true, message: "Authenticated user" });
+      const user = extractUser(response.body);
+      expect(user).toMatchObject({ email: payload.email.toLowerCase(), username: payload.username });
     });
 
     it("updates the user profile", async () => {
@@ -125,23 +118,12 @@ describe("Auth & User flows", () => {
       const response = await request(app)
         .put("/api/users/me")
         .set("Authorization", `Bearer ${token}`)
-        .send({ displayName: "Trail Runner", bio: "Loves elevation" });
+        .send({ displayName: "Trail Runner", bio: "Loves elevation" })
+        .expect(200);
 
-      expect(response.status).toBe(200);
-      expect(response.body).toMatchObject({ displayName: "Trail Runner", bio: "Loves elevation" });
-    });
-
-    it("syncs user stats", async () => {
-      const { token } = await authenticate();
-
-      const response = await request(app)
-        .put("/api/users/me/sync-stats")
-        .set("Authorization", `Bearer ${token}`)
-        .send({ steps: 1200, distance: 3.4 });
-
-      expect(response.status).toBe(200);
-      expect(response.body).toMatchObject({ msg: "Stats synced successfully" });
-      expect(response.body.user).toMatchObject({ steps: 1200, distance: 3.4 });
+      expect(response.body).toMatchObject({ success: true });
+      const user = extractUser(response.body);
+      expect(user).toMatchObject({ displayName: "Trail Runner", bio: "Loves elevation" });
     });
   });
 });

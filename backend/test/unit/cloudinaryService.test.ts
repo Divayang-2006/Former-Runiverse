@@ -1,56 +1,70 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
-type UploadResult = { secure_url: string; public_id: string };
-type DestroyResult = { result: string };
-type UploadFn = (path: string, options?: Record<string, unknown>) => Promise<UploadResult>;
-type DestroyFn = (publicId: string) => Promise<DestroyResult>;
-const uploadMock = jest.fn<UploadFn>();
-const destroyMock = jest.fn<DestroyFn>();
+type UploadStreamCallback = (error: unknown, result: unknown) => void;
+type UploadStreamReturn = { end: (buffer?: Buffer) => void };
+type UploadStreamFn = (options: Record<string, unknown>, callback: UploadStreamCallback) => UploadStreamReturn;
 
-jest.mock("../../dist/config/cloudinary.js", () => ({
+const uploadStreamMock = jest.fn();
+const configMock = jest.fn();
+
+jest.mock("cloudinary", () => ({
   __esModule: true,
-  default: {
+  v2: {
+    config: configMock,
     uploader: {
-      upload: uploadMock,
-      destroy: destroyMock
-    }
-  }
+      upload_stream: uploadStreamMock,
+    },
+  },
 }));
 
-import { uploadImage, deleteImage } from "../../dist/services/cloudinaryService.js";
+import { uploadImageBuffer } from "../../src/services/cloudinaryService.js";
+import { v2 as cloudinary } from "cloudinary";
 
 describe("cloudinaryService", () => {
-
   beforeEach(() => {
-    jest.clearAllMocks();
-    uploadMock.mockResolvedValue({
-      secure_url: "https://cdn.example.com/image.jpg",
-      public_id: "public-id-123"
-    });
-    destroyMock.mockResolvedValue({ result: "ok" });
+    uploadStreamMock.mockReset();
   });
 
-  it("uploads an image and returns Cloudinary identifiers", async () => {
-    const result = await uploadImage("/tmp/avatar.png", "profiles");
+  it("uploads a buffer and resolves with Cloudinary result", async () => {
+    uploadStreamMock.mockImplementation((_options: unknown, callback: UploadStreamCallback) => {
+      callback(undefined, {
+        url: "http://cdn.example.com/avatar.jpg",
+        secure_url: "https://cdn.example.com/avatar.jpg",
+        public_id: "avatar-123",
+      });
+      return { end: jest.fn() } as UploadStreamReturn;
+    });
 
-    expect(uploadMock).toHaveBeenCalledWith("/tmp/avatar.png", expect.objectContaining({
-      folder: "profiles"
-    }));
+    const buffer = Buffer.from("avatar-bytes");
+    const result = await uploadImageBuffer(buffer, { folder: "runiverse/avatars", publicId: "user-1" });
+
+    expect(cloudinary.config).toHaveBeenCalled();
+    expect(uploadStreamMock).toHaveBeenCalledWith(
+      expect.objectContaining({ folder: "runiverse/avatars", public_id: "user-1", overwrite: true }),
+      expect.any(Function)
+    );
     expect(result).toEqual({
-      secureUrl: "https://cdn.example.com/image.jpg",
-      publicId: "public-id-123"
+      url: "http://cdn.example.com/avatar.jpg",
+      secureUrl: "https://cdn.example.com/avatar.jpg",
+      publicId: "avatar-123",
     });
   });
 
-  it("skips deletion when no public id is provided", async () => {
-    await deleteImage(undefined);
+  it("rejects when Cloudinary reports an error", async () => {
+    uploadStreamMock.mockImplementation((_options: unknown, callback: UploadStreamCallback) => {
+      callback({ message: "upload failed" }, undefined);
+      return { end: jest.fn() } as UploadStreamReturn;
+    });
 
-    expect(destroyMock).not.toHaveBeenCalled();
+    await expect(uploadImageBuffer(Buffer.from("broken"))).rejects.toMatchObject({ message: "upload failed" });
   });
 
-  it("deletes an image when a public id exists", async () => {
-    await deleteImage("public-id-789");
+  it("rejects when Cloudinary returns no result", async () => {
+    uploadStreamMock.mockImplementation((_options: unknown, callback: UploadStreamCallback) => {
+      callback(undefined, undefined);
+      return { end: jest.fn() } as UploadStreamReturn;
+    });
 
-    expect(destroyMock).toHaveBeenCalledWith("public-id-789");
+    await expect(uploadImageBuffer(Buffer.from("no-result"))).rejects.toThrow("Cloudinary upload failed");
   });
 });
