@@ -1,10 +1,10 @@
 import { area as turfArea, length as turfLength, lineString as turfLineString, polygon as turfPolygon } from "@turf/turf";
 
-import type { CoordinateTuple, PolygonRings } from "../models/Territory.js";
+export type CoordinateTuple = [number, number];
+export type PolygonRing = CoordinateTuple[];
+export type PolygonRings = PolygonRing[];
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
-
-type PolygonRing = CoordinateTuple[];
 
 const clonePoint = (point: CoordinateTuple): CoordinateTuple => [point[0], point[1]];
 

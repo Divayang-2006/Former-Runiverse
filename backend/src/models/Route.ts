@@ -1,21 +1,16 @@
 import mongoose, { Schema, Model, HydratedDocument, Types } from "mongoose";
 
-export interface IRoutePoint {
-  latitude: number;
-  longitude: number;
-  elevation?: number | null;
-  recordedAt?: Date | null;
-}
-
 export interface IRoute {
-  user: Types.ObjectId;
-  rawPoints: IRoutePoint[];
-  processedPoints: IRoutePoint[];
-  encodedPolyline?: string;
-  startedAt: Date;
-  endedAt?: Date | null;
-  distanceMeters: number;
-  durationSeconds: number;
+  creatorId: Types.ObjectId;
+  name: string;
+  description?: string | null;
+  distance: number;
+  elevationGain: number;
+  popularityScore: number;
+  isPublic: boolean;
+  loop: boolean;
+  boundingBox?: Record<string, unknown> | null;
+  simplifiedPath?: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,31 +18,26 @@ export interface IRoute {
 export type RouteDocument = HydratedDocument<IRoute>;
 export type RouteModel = Model<IRoute>;
 
-const routePointSchema = new Schema<IRoutePoint>(
-  {
-    latitude: { type: Number, required: true },
-    longitude: { type: Number, required: true },
-    elevation: { type: Number, default: null },
-    recordedAt: { type: Date, default: null },
-  },
-  { _id: false }
-);
-
 const routeSchema = new Schema<IRoute, RouteModel>(
   {
-    user: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    rawPoints: { type: [routePointSchema], default: [] },
-    processedPoints: { type: [routePointSchema], default: [] },
-    encodedPolyline: { type: String },
-    startedAt: { type: Date, required: true },
-    endedAt: { type: Date, default: null },
-    distanceMeters: { type: Number, required: true, min: 0 },
-    durationSeconds: { type: Number, required: true, min: 0 },
+    creatorId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    name: { type: String, required: true, trim: true, maxlength: 200 },
+    description: { type: String, default: null, maxlength: 4000 },
+    distance: { type: Number, required: true, min: 0 },
+    elevationGain: { type: Number, required: true, min: 0 },
+    popularityScore: { type: Number, default: 0, min: 0 },
+    isPublic: { type: Boolean, default: true },
+    loop: { type: Boolean, default: false },
+    boundingBox: { type: Schema.Types.Mixed, default: null },
+    simplifiedPath: { type: Schema.Types.Mixed, default: null },
   },
   { timestamps: true }
 );
 
-routeSchema.index({ user: 1, startedAt: -1 });
+routeSchema.index({ creatorId: 1, isPublic: 1 });
+routeSchema.index({ popularityScore: -1 });
+routeSchema.index({ isPublic: 1, popularityScore: -1 });
 
-const Route = mongoose.model<IRoute, RouteModel>("Route", routeSchema);
+const Route = (mongoose.models.Route as RouteModel | undefined) ?? mongoose.model<IRoute, RouteModel>("Route", routeSchema);
+
 export default Route;

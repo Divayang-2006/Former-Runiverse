@@ -12,7 +12,6 @@ import { authService } from "@/services/AuthService";
 import {
   Task,
   TASK_TYPE_ICON,
-  difficultyColors,
   METRIC_CONFIG,
 } from "./(tabs)/challenges";
 
@@ -248,11 +247,16 @@ interface AchievementCardProps {
 const AchievementCard = ({ task, index }: AchievementCardProps) => {
   const { colors, isDark } = useTheme();
   const config = METRIC_CONFIG[task.type];
+  const difficultyPalette: Record<Task["difficulty"], string> = {
+    easy: colors.status.success,
+    medium: colors.status.warning,
+    hard: colors.status.error,
+  };
   const targetLabel = config
     ? `${config.formatTarget(task.target)} ${config.unitLabel}`
     : `${task.target}`;
   const iconName = TASK_TYPE_ICON[task.type] || "running";
-  const difficultyColor = difficultyColors[task.difficulty] || colors.accent.primary;
+  const difficultyColor = difficultyPalette[task.difficulty] || colors.accent.primary;
   const completedDate = formatDate(task.updatedAt ?? task.completedAt ?? task.createdAt);
 
   return (

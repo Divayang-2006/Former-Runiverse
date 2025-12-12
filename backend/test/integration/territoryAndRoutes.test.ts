@@ -1,120 +1,93 @@
-import { afterEach, beforeEach, describe, expect, it } from "@jest/globals";
+import { describe, expect, it } from "@jest/globals";
 import request from "supertest";
-import app from "../../dist/app.js";
-import Territory from "../../dist/models/Territory.js";
-import User from "../../dist/models/User.js";
-import "../../dist/models/Badge.js";
+import app from "../../src/app.js";
+import TerritoryCell from "../../src/models/TerritoryCell.js";
 
-const TEST_SECRET = "phase3-secret";
-const basePolygon = [
-  [0, 0],
-  [0, 0.001],
-  [0.001, 0.001],
-  [0.001, 0],
-];
-
-const registerUser = async (overrides: Record<string, unknown> = {}) => {
+const registerUser = async () => {
   const payload = {
-    username: `geo-${Math.random().toString(16).slice(2, 8)}`,
-    email: `geo-${Math.random().toString(16).slice(2, 8)}@example.com`,
+    username: `hex-${Math.random().toString(16).slice(2, 8)}`,
+    email: `hex-${Math.random().toString(16).slice(2, 8)}@example.com`,
     password: "Passw0rd!",
-    ...overrides,
   };
 
   const response = await request(app).post("/api/auth/register").send(payload);
   expect(response.status).toBe(201);
-  return { token: response.body.token as string, userId: response.body.user.id as string, payload };
+  return { token: response.body.token as string, userId: response.body.user.id as string };
 };
 
-describe("Territories", () => {
-  let originalFeatureFlag: string | undefined;
+describe("Territory cells", () => {
+  it("rejects capture requests without hexId", async () => {
+    const { token } = await registerUser();
 
-  beforeEach(() => {
-    originalFeatureFlag = process.env.FEATURE_USE_NEW_GEOMETRY;
-    process.env.JWT_SECRET = TEST_SECRET;
-    process.env.JWT_EXPIRATION = "1h";
+    const response = await request(app)
+      .post("/api/territory/capture")
+      .set("Authorization", `Bearer ${token}`)
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ message: "hexId is required" });
   });
 
-  afterEach(() => {
-    if (typeof originalFeatureFlag === "undefined") {
-      delete process.env.FEATURE_USE_NEW_GEOMETRY;
-    } else {
-      process.env.FEATURE_USE_NEW_GEOMETRY = originalFeatureFlag;
-    }
-  });
-
-  it("claims a territory using modern geometry flow", async () => {
+  it("captures a territory cell and assigns ownership", async () => {
     const { token, userId } = await registerUser();
 
     const response = await request(app)
-      .post("/api/territories/claim")
+      .post("/api/territory/capture")
       .set("Authorization", `Bearer ${token}`)
-      .send({
-        polygonRings: [basePolygon],
-        name: "Test Territory",
-      });
+      .send({ hexId: "8928308280fffff" })
+      .expect(201);
 
-    expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ success: true });
-    expect(response.body.data.owner).toEqual(userId);
-    expect(response.body.data.area).toBeGreaterThan(0);
-    expect(response.body.data.processedPoints[0][0]).toEqual(basePolygon[0]);
+    expect(response.body.data).toMatchObject({ hexId: "8928308280fffff", ownerId: userId });
 
-    const stored = await Territory.findOne({ owner: userId }).lean();
+    const stored = await TerritoryCell.findOne({ hexId: "8928308280fffff" }).lean();
     expect(stored).not.toBeNull();
-    expect(stored?.processedPoints[0]).toHaveLength(basePolygon.length + 1);
-    expect(stored?.area).toBeGreaterThan(0);
-    expect(stored?.perimeter).toBeGreaterThan(0);
+    expect(stored?.ownerId?.toString()).toBe(userId);
+    expect(stored?.captureCount).toBeGreaterThan(0);
   });
 
-  it("supports legacy geometry flow when feature flag is disabled", async () => {
-    process.env.FEATURE_USE_NEW_GEOMETRY = "false";
-    const { token, userId } = await registerUser();
+  it("lists only the authenticated user's captured cells", async () => {
+    const owner = await registerUser();
+    const other = await registerUser();
+
+    await request(app)
+      .post("/api/territory/capture")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ hexId: "8928308280fffef" })
+      .expect(201);
+
+    await request(app)
+      .post("/api/territory/capture")
+      .set("Authorization", `Bearer ${other.token}`)
+      .send({ hexId: "8928308280fffee" })
+      .expect(201);
 
     const response = await request(app)
-      .post("/api/territories/claim")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        coordinates: [basePolygon],
-        name: "Legacy Territory",
-        perimeter: 123,
-      });
+      .get("/api/territory/my")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect(200);
 
-    expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ success: true });
-    expect(response.body.data.owner).toEqual(userId);
-    expect(response.body.data.perimeter).toBeGreaterThan(0);
+    expect(response.body.data).toHaveLength(1);
+    expect(response.body.data[0]).toMatchObject({ hexId: "8928308280fffef" });
   });
 
-  it("filters territories by owner when scope=user", async () => {
-    const { token: ownerToken, userId } = await registerUser({ username: "owner-1" });
-    await registerUser({ username: "other-1" });
+  it("filters territory cells by bbox list", async () => {
+    const owner = await registerUser();
 
     await request(app)
-      .post("/api/territories/claim")
-      .set("Authorization", `Bearer ${ownerToken}`)
-      .send({ polygonRings: [basePolygon], name: "Owner Territory" })
+      .post("/api/territory/capture")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .send({ hexId: "8928308280fffed" })
+      .expect(201);
+
+    const response = await request(app)
+      .get("/api/territory/hexes")
+      .query({ bbox: "8928308280fffed,8928308280fffff" })
       .expect(200);
 
-    const otherUser = await registerUser({ username: "other-2" });
-    await request(app)
-      .post("/api/territories/claim")
-      .set("Authorization", `Bearer ${otherUser.token}`)
-      .send({ polygonRings: [basePolygon], name: "Other Territory" })
-      .expect(200);
-
-    const scopedResponse = await request(app)
-      .get("/api/territories")
-      .query({ scope: "user" })
-      .set("Authorization", `Bearer ${ownerToken}`);
-
-    expect(scopedResponse.status).toBe(200);
-    expect(scopedResponse.body).toMatchObject({ success: true });
-    expect(scopedResponse.body.data).toHaveLength(1);
-    expect(scopedResponse.body.data[0].owner._id ?? scopedResponse.body.data[0].owner).toEqual(userId);
-
-    const publicResponse = await request(app).get("/api/territories");
-    expect(publicResponse.status).toBe(200);
-    expect(publicResponse.body.data.length).toBeGreaterThanOrEqual(2);
+    expect(response.body).toMatchObject({ success: true });
+    const hexIds = response.body.data.map((cell: { hexId: string }) => cell.hexId);
+    expect(hexIds).toContain("8928308280fffed");
   });
 });

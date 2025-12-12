@@ -5,7 +5,6 @@ import { Server as SocketIOServer } from "socket.io";
 import type { Socket } from "socket.io";
 import app from "./app.js";
 import User from "./models/User.js";
-import "./models/Badge.js";
 
 dotenv.config();
 

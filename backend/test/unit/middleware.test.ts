@@ -1,117 +1,80 @@
-import { describe, expect, it, beforeEach, afterEach, jest } from "@jest/globals";
-import express from "express";
-import request from "supertest";
+import { beforeEach, describe, expect, it, jest } from "@jest/globals";
+import type { NextFunction, Request, Response } from "express";
+import { authMiddleware } from "../../src/middlewares/auth.js";
+import User from "../../src/models/User.js";
+import { verifyAccessToken } from "../../src/services/tokenService.js";
 
-import { validateImageFile } from "../../dist/middlewares/fileValidation.js";
-import { errorHandler, notFound } from "../../dist/middlewares/errorMiddleware.js";
+jest.mock("../../src/services/tokenService.js", () => ({
+	verifyAccessToken: jest.fn(),
+}));
 
-const buildMockResponse = () => {
-  const raw = {
-    status: jest.fn().mockReturnThis(),
-    json: jest.fn().mockReturnThis(),
-  };
-  return { raw, res: raw as unknown as Pick<express.Response, "status" | "json"> };
+type MockResponse = Response & { status: jest.Mock; json: jest.Mock };
+
+const createMockResponse = (): MockResponse => {
+	const res = {} as MockResponse;
+	res.status = jest.fn(() => res);
+	res.json = jest.fn(() => res);
+	return res;
 };
 
-describe("middleware utilities", () => {
-  describe("validateImageFile", () => {
-    let next: jest.Mock;
+const mockVerifyAccessToken = verifyAccessToken as jest.MockedFunction<typeof verifyAccessToken>;
 
-    beforeEach(() => {
-      next = jest.fn();
-    });
+const createMockNext = (): jest.MockedFunction<NextFunction> =>
+	jest.fn() as unknown as jest.MockedFunction<NextFunction>;
 
-    it("returns 400 when no file is present", () => {
-      const req = { file: undefined } as Parameters<typeof validateImageFile>[0];
-      const { raw, res } = buildMockResponse();
+describe("authMiddleware", () => {
+	beforeEach(() => {
+		mockVerifyAccessToken.mockReset();
+	});
 
-      validateImageFile(req, res as express.Response, next);
+	it("rejects requests without bearer token", async () => {
+		const req = { headers: {} } as Request;
+		const res = createMockResponse();
+		const next = createMockNext();
 
-      expect(raw.status).toHaveBeenCalledWith(400);
-      expect(raw.json).toHaveBeenCalledWith({ message: "No file uploaded" });
-      expect(next).not.toHaveBeenCalled();
-    });
+		await authMiddleware(req, res, next);
 
-    it("returns 400 for invalid mimetype", () => {
-      const req = {
-        file: {
-          mimetype: "application/pdf",
-          size: 10,
-        },
-      } as unknown as Parameters<typeof validateImageFile>[0];
-      const { raw, res } = buildMockResponse();
+		expect(res.status).toHaveBeenCalledWith(401);
+		expect(res.json).toHaveBeenCalledWith({ success: false, message: "No token provided" });
+		expect(next).not.toHaveBeenCalled();
+	});
 
-      validateImageFile(req, res as express.Response, next);
+	it("rejects when token verification fails", async () => {
+		const req = { headers: { authorization: "Bearer invalid" } } as Request;
+		const res = createMockResponse();
+		const next = createMockNext();
 
-      expect(raw.status).toHaveBeenCalledWith(400);
-      expect(raw.json).toHaveBeenCalledWith({ message: "Invalid file type" });
-      expect(next).not.toHaveBeenCalled();
-    });
+		mockVerifyAccessToken.mockImplementation(() => {
+			throw new Error("Invalid token");
+		});
 
-    it("returns 400 for oversized files", () => {
-      const req = {
-        file: {
-          mimetype: "image/png",
-          size: 6 * 1024 * 1024,
-        },
-      } as unknown as Parameters<typeof validateImageFile>[0];
-      const { raw, res } = buildMockResponse();
+		await authMiddleware(req, res, next);
 
-      validateImageFile(req, res as express.Response, next);
+		expect(res.status).toHaveBeenCalledWith(401);
+		expect(res.json).toHaveBeenCalledWith({ success: false, message: "Token is not valid" });
+		expect(next).not.toHaveBeenCalled();
+	});
 
-      expect(raw.status).toHaveBeenCalledWith(400);
-      expect(raw.json).toHaveBeenCalledWith({ message: "File too large (max 5MB)" });
-      expect(next).not.toHaveBeenCalled();
-    });
+	it("attaches the user and calls next when token is valid", async () => {
+		const req = { headers: { authorization: "Bearer valid" } } as Parameters<typeof authMiddleware>[0];
+		const res = createMockResponse();
+		const next = createMockNext();
+		const userDoc = { _id: "507f1f77bcf86cd799439011", username: "runner" };
 
-    it("calls next for valid image files", () => {
-      const req = {
-        file: {
-          mimetype: "image/jpeg",
-          size: 512 * 1024,
-        },
-      } as unknown as Parameters<typeof validateImageFile>[0];
-      const { raw, res } = buildMockResponse();
+		mockVerifyAccessToken.mockReturnValue({ id: userDoc._id });
 
-      validateImageFile(req, res as express.Response, next);
+		const selectMock = jest
+			.fn(() => Promise.resolve(userDoc)) as unknown as ReturnType<typeof User.findById>["select"];
+		const findByIdSpy = jest.spyOn(User, "findById").mockReturnValue({
+			select: selectMock,
+		} as unknown as ReturnType<typeof User.findById>);
 
-      expect(raw.status).not.toHaveBeenCalled();
-      expect(raw.json).not.toHaveBeenCalled();
-      expect(next).toHaveBeenCalledTimes(1);
-    });
-  });
+		await authMiddleware(req, res, next);
 
-  describe("error middleware", () => {
-    const originalNodeEnv = process.env.NODE_ENV;
+		expect(findByIdSpy).toHaveBeenCalledWith(userDoc._id);
+		expect(req.user).toEqual(userDoc);
+		expect(next).toHaveBeenCalledTimes(1);
 
-    afterEach(() => {
-      process.env.NODE_ENV = originalNodeEnv;
-    });
-
-    it("formats thrown errors with stack trace outside production", async () => {
-      process.env.NODE_ENV = "test";
-      const app = express();
-      app.get("/boom", () => {
-        throw new Error("Boom");
-      });
-      app.use(errorHandler);
-
-      const response = await request(app).get("/boom");
-      expect(response.status).toBe(500);
-      expect(response.body.message).toBe("Boom");
-      expect(response.body.stack).toContain("Error: Boom");
-    });
-
-    it("suppresses stack trace in production", async () => {
-      process.env.NODE_ENV = "production";
-      const app = express();
-      app.use(notFound);
-      app.use(errorHandler);
-
-      const response = await request(app).get("/missing");
-      expect(response.status).toBe(404);
-      expect(response.body.message).toBe("Not Found - /missing");
-      expect(response.body.stack).toBeNull();
-    });
-  });
+		findByIdSpy.mockRestore();
+	});
 });
