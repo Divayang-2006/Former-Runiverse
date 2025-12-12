@@ -55,6 +55,8 @@ const ProfileScreen = () => {
   );
 
   const profileOptions: Array<{ icon: keyof typeof FontAwesome5.glyphMap; text: string; href?: Href }> = [
+    { icon: 'running', text: 'Activities', href: '/activities' },
+    { icon: 'chart-line', text: 'Statistics',  },
     { icon: 'trophy', text: 'My Achievements', href: '/achievements' },
     { icon: 'route', text: 'Route History' },
     { icon: 'user-friends', text: 'Friends & Community' },
