@@ -1,6 +1,40 @@
-# 🏃‍♂️ Gamified Fitness App  
+# Runiverse - Fitness isn’t just personal, it’s territorial warfare.  
 
 A mobile-first **fitness gamification platform** where users can **walk to claim territories**, complete **dynamic tasks**, earn **XP & rewards**, unlock **badges**, and compete on **leaderboards** with friends or across the city. Inspired by **Pokémon GO + Strava**, built with **React Native, Node.js, Express, MongoDB, and Mapbox**.  
+---
+
+# Future Updates & Goals
+
+We’re targeting a **Beta Release in December**, and here’s what needs to be accomplished before launch:
+
+## Bugs to Fix
+- Improve logic for territory formation on the map  
+- Resolve layout issues in the preview build (focus on optimization and performance)  
+
+## Features to Implement
+- Friends & Communities (social layer)  
+- Group territory formation (clan-based logic)  
+- Route history tracking  
+- Background tracking (continue tracking even when the app is minimized)  
+- Session-wise tracking  
+
+## App Story & Vision
+This project is a **gamified fitness app** that combines health tracking with interactive gameplay. Alongside standard features like step counting and calorie tracking, the app introduces a unique mechanic:
+
+- As users walk, their routes are tracked on a **3D Map (powered by Mapbox)**.  
+- If a user completes a closed path, a **territory is formed**.  
+- Territories are the core gameplay element, evolving into a competitive and collaborative experience.  
+
+### Clan System (Yet to be implmented)
+- Each player owns individual territories.  
+- Players in the same clan combine their territories into a **shared clan territory**.  
+- Weekly **Clan Wars** introduce fitness competitions, encouraging teamwork, consistency, and friendly rivalry.
+  
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/b90815fb-f966-4aa5-9162-0a8cfeaf3d54" alt="Screenshot 1" width="30%" />
+  <img src="https://github.com/user-attachments/assets/d328dc20-95c4-4c22-af1f-2f0b34c80781" alt="Screenshot 2" width="30%" />
+  <img src="https://github.com/user-attachments/assets/43d3b287-7273-4b37-acb7-862e4e9e473c" alt="Screenshot 3" width="30%" />
+</p>
 
 ---
 Setup

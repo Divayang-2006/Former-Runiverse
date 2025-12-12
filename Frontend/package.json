@@ -29,6 +29,7 @@
     "@turf/union": "^7.2.0",
     "axios": "^1.12.2",
     "cloudinary": "^2.8.0",
+    "dayjs": "^1.11.19",
     "dotenv": "^17.2.3",
     "expo": "53.0.22",
     "expo-av": "~15.1.7",
@@ -77,6 +78,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@types/mapbox__polyline": "^1.0.5",
     "@types/react": "~19.0.10",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~9.2.0",

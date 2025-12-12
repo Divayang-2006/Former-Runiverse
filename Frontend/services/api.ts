@@ -1,16 +1,27 @@
 // src/services/api.ts
-import Constants from "expo-constants";
 
-const normalize = (value: string) => (value.endsWith("/") ? value.slice(0, -1) : value);
+const normalize = (value?: string | null): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+};
 
 const resolveBaseUrl = (): string => {
-  const envUrl = process.env.EXPO_PUBLIC_API_URL;
-  const configUrl = Constants.expoConfig?.extra?.apiUrl as string | undefined;
-  if (envUrl) return normalize(envUrl);
-  if (configUrl) return normalize(configUrl);
-  return "https://runiverse.onrender.com";
+  const devUrl = normalize(process.env.EXPO_PUBLIC_API_URL_DEV);
+  const prodUrl = normalize(process.env.EXPO_PUBLIC_API_URL_PROD);
+
+  if (!devUrl || !prodUrl) {
+    throw new Error("EXPO_PUBLIC_API_URL_DEV and EXPO_PUBLIC_API_URL_PROD must be defined in .env");
+  }
+
+  const expoDevFlag = (globalThis as { __DEV__?: boolean }).__DEV__;
+  const isDev = typeof expoDevFlag === "boolean" ? expoDevFlag : (process.env.NODE_ENV ?? "development") !== "production";
+
+  return isDev ? devUrl : prodUrl;
 };
-const BASE_URL = "https://runiverse.onrender.com";
+
+const BASE_URL = resolveBaseUrl();
 
 async function handleResponse<T>(res: Response, path: string): Promise<T> {
   let data: any = null;
