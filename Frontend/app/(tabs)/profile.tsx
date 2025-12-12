@@ -18,7 +18,7 @@ import AlertCard from '@/components/AlertCard';
 import CalendarSection from '@/components/CalendarSection';
 
 const ProfileScreen = () => {
-  const { theme, colors, isDark } = useTheme();
+  const { colors, isDark } = useTheme();
   const user = useStore((s) => s.user);
   const setUser = useStore((s) => s.setUser);
   const isDarkMode = isDark;
@@ -26,10 +26,6 @@ const ProfileScreen = () => {
   const [error, setError] = useState<string | null>(null);
 
   const bgClass = isDarkMode ? "bg-background-dark" : "bg-background-light";
-  const textClass = isDarkMode ? "text-text-primary" : "text-text-light";
-  const secondaryTextClass = isDarkMode ? "text-text-secondary" : "text-subtle-light";
-  const cardBgClass = isDarkMode ? "bg-card-dark" : "bg-card-light";
-  const statTileBg = isDarkMode ? "bg-background-dark" : "bg-background-light";
   const headerGradient = isDarkMode ? colors.gradients.berryBlend : colors.gradients.oceanBreeze;
 
   const formatNumber = (value?: number | null) => {
@@ -258,54 +254,6 @@ const ProfileScreen = () => {
             </Animated.View>
           )}
 
-          {/* <Animated.View 
-            entering={FadeInDown.duration(600).delay(200).springify()}
-            layout={Layout.springify()}
-            className="rounded-3xl p-6 mb-4"
-            style={{
-              backgroundColor: isDarkMode ? colors.background.elevated : colors.background.secondary,
-              shadowColor: isDarkMode ? '#000' : '#1a1a1a',
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: isDarkMode ? 0.5 : 0.15,
-              shadowRadius: 16,
-              elevation: 12,
-            }}
-          >
-            <View className="flex-row justify-between items-center mb-6">
-              <Text className="text-[22px] font-bold tracking-tight" style={{ color: colors.text.primary }}>Progress Overview</Text>
-              <View className="px-3.5 py-2 rounded-xl" style={{ backgroundColor: `${colors.status.success}20` }}>
-                <Text className="text-[10px] font-bold tracking-widest" style={{ color: colors.status.success }}>LIVE</Text>
-              </View>
-            </View>
-            <View className="flex-row flex-wrap -mx-2">
-              {stats.map((stat, idx) => (
-                <Animated.View 
-                  key={stat.key} 
-                  entering={FadeInDown.duration(600).delay(300 + idx * 50).springify()}
-                  layout={Layout.springify()}
-                  className="w-1/2 px-2 pb-4"
-                >
-                  <View
-                    className="rounded-2xl p-5"
-                    style={{ 
-                      backgroundColor: isDarkMode ? colors.background.tertiary : colors.background.primary,
-                      borderWidth: 1, 
-                      borderColor: isDarkMode ? colors.border.medium : colors.border.light,
-                      shadowColor: isDarkMode ? '#000' : '#1a1a1a',
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: isDarkMode ? 0.3 : 0.08,
-                      shadowRadius: 8,
-                      elevation: 6,
-                    }}
-                  >
-                    <Text className="text-[11px] uppercase tracking-widest font-bold mb-2" style={{ color: colors.text.secondary }}>{stat.label}</Text>
-                    <Text className="text-[24px] font-black tracking-tight" style={{ color: colors.text.primary }}>{stat.value}</Text>
-                  </View>
-                </Animated.View>
-              ))}
-            </View>
-          </Animated.View> */}
-
           <Animated.View 
             entering={FadeInDown.duration(600).delay(400).springify()}
             layout={Layout.springify()}
@@ -406,7 +354,7 @@ interface ProfileOptionProps {
   text: string;
   isDarkMode: boolean;
   isLast?: boolean;
-  href?: string;
+  href?: Href;
 }
 
 const ProfileOption = ({ icon, text, isDarkMode, isLast = false, href }: ProfileOptionProps) => {
