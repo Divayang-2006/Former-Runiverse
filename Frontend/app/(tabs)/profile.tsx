@@ -27,7 +27,9 @@ const ProfileScreen = () => {
   const [error, setError] = useState<string | null>(null);
 
   const bgClass = isDarkMode ? "bg-background-dark" : "bg-background-light";
-  const headerGradient = isDarkMode ? colors.gradients.berryBlend : colors.gradients.oceanBreeze;
+  const headerGradient = isDarkMode
+    ? ['#6c736eff', '#5ae092ff', '#84cc16']
+    : colors.gradients.oceanBreeze;
 
   const formatNumber = (value?: number | null) => {
     if (value === undefined || value === null) return '—';
