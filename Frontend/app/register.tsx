@@ -13,10 +13,9 @@ export default function RegisterScreen() {
   const setUser = useStore((s) => s.setUser);
   const user = useStore((s) => s.user);
   const insets = useSafeAreaInsets();
-  const [lastName, setLastName] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -28,19 +27,17 @@ export default function RegisterScreen() {
   }, [user, router]);
 
   const handleRegister = async () => {
-    if (!username || !email || !password) {
+    if (!username.trim() || !email.trim() || !password) {
       Alert.alert('Validation', 'Username, email & password are required');
       return;
     }
     try {
       setLoading(true);
       const payload = {
-        username,
-        email,
+        username: username.trim(),
+        email: email.trim(),
         password,
-        lastName,
-        mobileNumber: mobile,
-      } as any;
+      };
 
       const result = await authService.register(payload);
 
@@ -54,6 +51,20 @@ export default function RegisterScreen() {
             id: result.user._id || result.user.id,
             avatarUrl: result.user.avatar || result.user.avatarUrl || null,
           };
+        }
+
+        if (displayName.trim().length > 0) {
+          try {
+            const profileResult = await profileService.updateUserProfile({ displayName: displayName.trim() });
+            if (profileResult.success && profileResult.data) {
+              normalizedUser = {
+                ...(normalizedUser || {}),
+                ...profileResult.data,
+              };
+            }
+          } catch (profileError) {
+            console.warn('Optional profile update failed:', profileError);
+          }
         }
 
         try {
@@ -124,10 +135,9 @@ export default function RegisterScreen() {
 
           {/* Form */}
           <Animated.View entering={FadeInDown.duration(600).delay(300)} style={{ gap: 12 }}>
-            <CustomInput iconName="account-outline" placeholder="Enter Your Name" value={lastName} onChangeText={setLastName} />
+            <CustomInput iconName="account-outline" placeholder="Display Name (optional)" value={displayName} onChangeText={setDisplayName} />
             <CustomInput iconName="account-circle-outline" placeholder="Enter Username" value={username} onChangeText={setUsername} />
-            <CustomInput iconName="email-outline" placeholder="Enter Email Id" value={email} onChangeText={setEmail} />
-            <CustomInput iconName="phone-outline" placeholder="Mobile Number" value={mobile} onChangeText={setMobile} />
+            <CustomInput iconName="email-outline" placeholder="Enter Email" value={email} onChangeText={setEmail} />
             <CustomInput iconName="lock-outline" placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
           </Animated.View>
 
