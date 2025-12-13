@@ -33,6 +33,7 @@ export interface Activity {
   detectedRoutes: string[];
   createdAt: string;
   updatedAt: string;
+  elevationGain?: number;
 }
 
 export type MetricsKey = "weekly" | "yearToDate" | "allTime";

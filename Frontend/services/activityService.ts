@@ -24,6 +24,7 @@ interface ActivityPayload {
   detectedRoutes?: unknown;
   createdAt?: string | number | Date;
   updatedAt?: string | number | Date;
+  elevationGain?: number;
 }
 
 const toIsoString = (value: string | number | Date | undefined): string => {
@@ -67,6 +68,7 @@ const mapActivity = (payload: ActivityPayload): Activity => {
     detectedRoutes: toStringArray(payload.detectedRoutes),
     createdAt: toIsoString(payload.createdAt),
     updatedAt: toIsoString(payload.updatedAt),
+    elevationGain: typeof payload.elevationGain === "number" ? payload.elevationGain : 0,
   };
 };
 
