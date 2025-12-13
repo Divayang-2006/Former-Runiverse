@@ -1,126 +1,190 @@
-import React, {useMemo, useState} from 'react'
+import React, {useCallback, useEffect, useMemo, useState} from 'react'
 import {SafeAreaView} from 'react-native-safe-area-context'
 import {useRouter} from 'expo-router'
-import {View, Text, ScrollView, TextInput, Pressable} from 'react-native'
+import {View, Text, ScrollView, TextInput, Pressable, RefreshControl, ActivityIndicator} from 'react-native'
 import {useTheme} from '../context/ThemeContext'
 import {Ionicons, FontAwesome5} from '@expo/vector-icons'
+import dayjs from 'dayjs'
+import {useStore} from '@/store/useStore'
+import {activityService} from '@/services/activityService'
+import type {Activity} from '@/store/types'
 
-const FILTERS = ['All', 'Distance', 'Elevation', 'Time', 'Dates', 'Activity tag'] as const
+const FILTERS = ['All', 'Distance', 'Calories', 'Duration', 'Dates', 'Activity Type'] as const
 
-type FilterValue = typeof FILTERS[number]
+type FilterValue = (typeof FILTERS)[number]
 
-type Activity = {
+interface ActivityCardView {
   id: string
   title: string
   subtitle: string
-  category: Exclude<FilterValue, 'All' | 'Activity tag'> | 'Activity tag'
-  distance: string
-  elevation: string
-  duration: string
-  date: string
+  category: FilterValue
+  distanceLabel: string
+  caloriesLabel: string
+  durationLabel: string
+  dateLabel: string
   tags: string[]
+  isRecent: boolean
+  searchTokens: string
 }
 
-const ACTIVITIES: Activity[] = [
-  {
-    id: '1',
-    title: 'Sunrise Tempo Run',
-    subtitle: 'Golden Gate Loop',
-    category: 'Distance',
-    distance: '12.5 km',
-    elevation: '210 m',
-    duration: '58m',
-    date: 'Dec 01, 2025',
-    tags: ['Tempo', 'Morning'],
-  },
-  {
-    id: '2',
-    title: 'Summit Push',
-    subtitle: 'Twin Peaks Climb',
-    category: 'Elevation',
-    distance: '8.3 km',
-    elevation: '480 m',
-    duration: '1h 12m',
-    date: 'Nov 28, 2025',
-    tags: ['Hill Repeats'],
-  },
-  {
-    id: '3',
-    title: 'Lunch Break Dash',
-    subtitle: 'Embarcadero Sprint',
-    category: 'Time',
-    distance: '5.0 km',
-    elevation: '35 m',
-    duration: '22m',
-    date: 'Nov 23, 2025',
-    tags: ['Speedwork', 'Lunchtime'],
-  },
-  {
-    id: '4',
-    title: 'Distance Builder',
-    subtitle: 'Bay Trail Long Run',
-    category: 'Distance',
-    distance: '21.1 km',
-    elevation: '190 m',
-    duration: '1h 48m',
-    date: 'Nov 17, 2025',
-    tags: ['Half Marathon Prep'],
-  },
-  {
-    id: '5',
-    title: 'Sunset Recovery Walk',
-    subtitle: 'Presidio Loop',
-    category: 'Dates',
-    distance: '4.4 km',
-    elevation: '60 m',
-    duration: '41m',
-    date: 'Nov 15, 2025',
-    tags: ['Recovery'],
-  },
-  {
-    id: '6',
-    title: 'Stride Lab Session',
-    subtitle: 'Track Intervals',
-    category: 'Activity tag',
-    distance: '7.2 km',
-    elevation: '15 m',
-    duration: '36m',
-    date: 'Nov 10, 2025',
-    tags: ['Intervals', 'Form'],
-  },
-]
+const capitalizeWords = (value: string): string =>
+  value
+    .split(' ')
+    .map(part => (part.length > 0 ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(' ')
+
+const formatDistance = (meters: number): string => {
+  const kilometers = meters / 1000
+  if (!Number.isFinite(kilometers) || kilometers <= 0) return '0 km'
+  return kilometers >= 10 ? `${kilometers.toFixed(1)} km` : `${kilometers.toFixed(2)} km`
+}
+
+const formatDuration = (minutes: number): string => {
+  const rounded = Math.max(Math.round(minutes), 0)
+  const hours = Math.floor(rounded / 60)
+  const remainingMinutes = rounded % 60
+  if (hours > 0) {
+    return `${hours}h ${remainingMinutes}m`
+  }
+  return `${remainingMinutes}m`
+}
+
+const formatCalories = (calories: number): string => {
+  const rounded = Math.max(Math.round(calories), 0)
+  return rounded > 0 ? `${rounded} kcal` : '—'
+}
+
+const buildCard = (activity: Activity): ActivityCardView => {
+  const start = dayjs(activity.startTime)
+  const end = dayjs(activity.endTime)
+  const durationMinutes = start.isValid() && end.isValid() ? end.diff(start, 'minute', true) : 0
+  const distance = activity.totalDistance
+  const calories = activity.calories
+  const baseTitle = activity.activityType?.replace(/[-_]/g, ' ') || 'Activity'
+  const title = capitalizeWords(baseTitle)
+  const subtitle = start.isValid()
+    ? `${start.format('ddd, MMM D • h:mm A')}${end.isValid() ? ` — ${end.format('h:mm A')}` : ''}`
+    : 'Activity details pending'
+  const tags = [
+    title,
+    activity.loopDetected ? 'Loop route' : null,
+    distance / 1000 >= 10 ? 'Long run' : null,
+    calories >= 600 ? 'High burn' : null,
+  ].filter(Boolean) as string[]
+  const isRecent = start.isAfter(dayjs().subtract(14, 'day'))
+  const category: FilterValue = (() => {
+    if (distance / 1000 >= 10) return 'Distance'
+    if (calories >= 600) return 'Calories'
+    if (durationMinutes >= 75) return 'Duration'
+    if (isRecent) return 'Dates'
+    return 'Activity Type'
+  })()
+
+  return {
+    id: activity.id,
+    title,
+    subtitle,
+    category,
+    distanceLabel: formatDistance(distance),
+    caloriesLabel: formatCalories(calories),
+    durationLabel: formatDuration(durationMinutes),
+    dateLabel: start.isValid() ? start.format('MMM DD, YYYY') : '—',
+    tags,
+    isRecent,
+    searchTokens: [title, subtitle, ...tags].join(' ').toLowerCase(),
+  }
+}
 
 export default function ActivitiesScreen() {
   const {colors, isDark} = useTheme()
   const router = useRouter()
+  const user = useStore(state => state.user)
+  const activities = useStore(state => state.activities)
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [activeFilter, setActiveFilter] = useState<FilterValue>('All')
+  const [isLoading, setIsLoading] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const cards = useMemo(() => activities.map(buildCard), [activities])
+
+  const fetchActivities = useCallback(
+    async (mode: 'initial' | 'refresh' = 'initial') => {
+      if (mode === 'initial') setIsLoading(true)
+      else setIsRefreshing(true)
+      setError(null)
+
+      try {
+        await activityService.fetchActivities({limit: 50})
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load activities'
+        setError(message)
+      } finally {
+        if (mode === 'initial') setIsLoading(false)
+        else setIsRefreshing(false)
+      }
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (!user?.id) {
+      return
+    }
+    if (activities.length === 0) {
+      fetchActivities('initial')
+    }
+  }, [activities.length, fetchActivities, user?.id])
+
+  const handleRefresh = useCallback(() => {
+    fetchActivities('refresh')
+  }, [fetchActivities])
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedQuery(query)
+    }, 500)
+    return () => {
+      clearTimeout(handle)
+    }
+  }, [query])
 
   const filteredActivities = useMemo(() => {
-    const lowerQuery = query.trim().toLowerCase()
-    return ACTIVITIES.filter(activity => {
-      const matchesFilter =
-        activeFilter === 'All'
-          ? true
-          : activeFilter === 'Activity tag'
-            ? activity.tags.length > 0
-            : activity.category === activeFilter
+    const lowerQuery = debouncedQuery.trim().toLowerCase()
+    return cards.filter(card => {
+      const matchesFilter = (() => {
+        switch (activeFilter) {
+          case 'All':
+            return true
+          case 'Dates':
+            return card.isRecent
+          case 'Activity Type':
+            return card.tags.length > 0
+          default:
+            return card.category === activeFilter
+        }
+      })()
 
-      if (!matchesFilter) return false
+      if (!matchesFilter) {
+        return false
+      }
 
-      if (!lowerQuery) return true
+      if (!lowerQuery) {
+        return true
+      }
 
-      return (
-        activity.title.toLowerCase().includes(lowerQuery) ||
-        activity.subtitle.toLowerCase().includes(lowerQuery) ||
-        activity.tags.some(tag => tag.toLowerCase().includes(lowerQuery))
-      )
+      return card.searchTokens.includes(lowerQuery)
     })
-  }, [activeFilter, query])
+  }, [activeFilter, cards, debouncedQuery])
 
   return (
     <SafeAreaView style={{flex: 1, backgroundColor: colors.background.primary}}>
-      <ScrollView contentContainerStyle={{paddingBottom: 40, paddingHorizontal: 20}} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={{paddingBottom: 40, paddingHorizontal: 20}}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.text.secondary} />}
+      >
         <View className="flex-row items-center justify-between pt-4 mb-6">
           <Pressable
             onPress={() => router.back()}
@@ -202,14 +266,27 @@ export default function ActivitiesScreen() {
           })}
         </ScrollView>
 
-        {filteredActivities.length === 0 ? (
+        {error ? (
+          <Text className="mb-4 text-sm" style={{color: colors.status.error}}>
+            {error}
+          </Text>
+        ) : null}
+
+        {isLoading && cards.length === 0 ? (
+          <View className="items-center justify-center py-24">
+            <ActivityIndicator size="large" color={colors.accent.primary} />
+            <Text className="text-base mt-4" style={{color: colors.text.secondary}}>
+              Loading your activities...
+            </Text>
+          </View>
+        ) : filteredActivities.length === 0 ? (
           <View className="items-center justify-center py-24">
             <Text className="text-5xl mb-3">🏃‍♂️</Text>
             <Text className="text-lg font-semibold" style={{color: colors.text.primary}}>
               No activities found
             </Text>
             <Text className="text-base mt-2 text-center px-6" style={{color: colors.text.secondary}}>
-              Try adjusting your search or filters to discover more runs.
+              Try adjusting your search or refresh to sync the latest runs.
             </Text>
           </View>
         ) : (
@@ -250,23 +327,23 @@ export default function ActivitiesScreen() {
                     Distance
                   </Text>
                   <Text className="text-lg font-semibold mt-1" style={{color: colors.text.primary}}>
-                    {activity.distance}
+                    {activity.distanceLabel}
                   </Text>
                 </View>
                 <View className="flex-1">
                   <Text className="text-xs uppercase tracking-widest" style={{color: colors.text.secondary}}>
-                    Elevation
+                    Calories
                   </Text>
                   <Text className="text-lg font-semibold mt-1" style={{color: colors.text.primary}}>
-                    {activity.elevation}
+                    {activity.caloriesLabel}
                   </Text>
                 </View>
                 <View className="flex-1">
                   <Text className="text-xs uppercase tracking-widest" style={{color: colors.text.secondary}}>
-                    Time
+                    Duration
                   </Text>
                   <Text className="text-lg font-semibold mt-1" style={{color: colors.text.primary}}>
-                    {activity.duration}
+                    {activity.durationLabel}
                   </Text>
                 </View>
               </View>
@@ -277,7 +354,7 @@ export default function ActivitiesScreen() {
                     Date
                   </Text>
                   <Text className="text-sm font-medium mt-1" style={{color: colors.text.primary}}>
-                    {activity.date}
+                    {activity.dateLabel}
                   </Text>
                 </View>
                 <View className="flex-row flex-wrap justify-end">

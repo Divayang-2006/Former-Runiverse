@@ -1,9 +1,12 @@
-import React, {useMemo, useState, useCallback} from 'react'
-import {View, Text, Pressable, PanResponder, LayoutChangeEvent} from 'react-native'
+import React, {useMemo, useState, useCallback, useEffect, useRef} from 'react'
+import {View, Text, Pressable, PanResponder, LayoutChangeEvent, ActivityIndicator} from 'react-native'
 import {useTheme} from '../context/ThemeContext'
 import dayjs from 'dayjs'
 import Svg, {Polyline, Line, Circle} from 'react-native-svg'
 import {FontAwesome5} from '@expo/vector-icons'
+import {useStore} from '@/store/useStore'
+import type {Activity} from '@/store/types'
+import activityService from '@/services/activityService'
 
 interface WeeklySample {
   start: string // ISO date for Monday of the week
@@ -14,40 +17,12 @@ interface WeeklySample {
 
 type Discipline = 'run' | 'ride'
 
-const SAMPLE_DATA: Record<Discipline, WeeklySample[]> = {
-  run: [
-    {start: '2025-09-15', distanceKm: 18.2, durationMinutes: 142, elevationGain: 340},
-    {start: '2025-09-22', distanceKm: 22.4, durationMinutes: 168, elevationGain: 420},
-    {start: '2025-09-29', distanceKm: 16.8, durationMinutes: 130, elevationGain: 280},
-    {start: '2025-10-06', distanceKm: 28.6, durationMinutes: 220, elevationGain: 520},
-    {start: '2025-10-13', distanceKm: 24.1, durationMinutes: 198, elevationGain: 470},
-    {start: '2025-10-20', distanceKm: 29.4, durationMinutes: 232, elevationGain: 540},
-    {start: '2025-10-27', distanceKm: 26.1, durationMinutes: 210, elevationGain: 500},
-    {start: '2025-11-03', distanceKm: 31.7, durationMinutes: 245, elevationGain: 580},
-    {start: '2025-11-10', distanceKm: 21.3, durationMinutes: 162, elevationGain: 360},
-    {start: '2025-11-17', distanceKm: 19.4, durationMinutes: 148, elevationGain: 310},
-    {start: '2025-11-24', distanceKm: 27.9, durationMinutes: 216, elevationGain: 520},
-    {start: '2025-12-01', distanceKm: 33.2, durationMinutes: 256, elevationGain: 610},
-  ],
-  ride: [
-    {start: '2025-09-15', distanceKm: 86.2, durationMinutes: 210, elevationGain: 820},
-    {start: '2025-09-22', distanceKm: 94.6, durationMinutes: 228, elevationGain: 910},
-    {start: '2025-09-29', distanceKm: 78.4, durationMinutes: 198, elevationGain: 760},
-    {start: '2025-10-06', distanceKm: 102.5, durationMinutes: 240, elevationGain: 980},
-    {start: '2025-10-13', distanceKm: 96.8, durationMinutes: 236, elevationGain: 940},
-    {start: '2025-10-20', distanceKm: 112.7, durationMinutes: 258, elevationGain: 1080},
-    {start: '2025-10-27', distanceKm: 98.6, durationMinutes: 244, elevationGain: 890},
-    {start: '2025-11-03', distanceKm: 120.3, durationMinutes: 272, elevationGain: 1150},
-    {start: '2025-11-10', distanceKm: 87.9, durationMinutes: 214, elevationGain: 780},
-    {start: '2025-11-17', distanceKm: 92.1, durationMinutes: 220, elevationGain: 820},
-    {start: '2025-11-24', distanceKm: 118.5, durationMinutes: 268, elevationGain: 1100},
-    {start: '2025-12-01', distanceKm: 134.2, durationMinutes: 292, elevationGain: 1240},
-  ],
-}
-
 const CHART_HEIGHT = 140
 const CHART_PADDING = 24
 const DEFAULT_POINT_SPACING = 48
+const WEEKS_TO_DISPLAY = 12
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const MS_PER_MINUTE = 60 * 1000
 
 const disciplineTabs: {value: Discipline; label: string; icon: string}[] = [
   {value: 'run', label: 'Running', icon: 'shoe-prints'},
@@ -73,55 +48,222 @@ const formatRange = (start: string) => {
   return `${begin.format('MMM D')} - ${end.format('MMM D')}`
 }
 
+const getWeekStart = (date: Date) => {
+  if (Number.isNaN(date.getTime())) {
+    return new Date(Date.UTC(1970, 0, 5))
+  }
+  const day = date.getUTCDay()
+  const diff = (day + 6) % 7
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - diff))
+}
+
+const classifyDiscipline = (activityType: string): Discipline | null => {
+  const value = activityType.toLowerCase()
+  if (value.includes('ride') || value.includes('cycle') || value.includes('bike')) {
+    return 'ride'
+  }
+  if (value.includes('run') || value.includes('walk') || value.includes('jog')) {
+    return 'run'
+  }
+  return null
+}
+
+const computeDurationMinutes = (start: string, end: string) => {
+  const startMs = new Date(start).getTime()
+  const endMs = new Date(end).getTime()
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+    return 0
+  }
+  return Math.max(0, endMs - startMs) / MS_PER_MINUTE
+}
+
+const buildWeeklySeries = (activities: Activity[]): Record<Discipline, WeeklySample[]> => {
+  const baseWeek = getWeekStart(new Date())
+  let latestWeekMs = baseWeek.getTime()
+
+  const accumulator: Record<Discipline, Map<string, {distance: number; duration: number; elevation: number}>> = {
+    run: new Map(),
+    ride: new Map(),
+  }
+
+  for (const activity of activities) {
+    const discipline = classifyDiscipline(activity.activityType)
+    if (!discipline) {
+      continue
+    }
+
+    const start = new Date(activity.startTime)
+    const weekStart = getWeekStart(start)
+    const key = weekStart.toISOString()
+    const bucket = accumulator[discipline].get(key) ?? {distance: 0, duration: 0, elevation: 0}
+
+    bucket.distance += typeof activity.totalDistance === 'number' ? activity.totalDistance : 0
+    bucket.duration += computeDurationMinutes(activity.startTime, activity.endTime)
+    bucket.elevation += typeof activity.elevationGain === 'number' ? activity.elevationGain : 0
+
+    accumulator[discipline].set(key, bucket)
+
+    const weekMs = weekStart.getTime()
+    if (weekMs > latestWeekMs) {
+      latestWeekMs = weekMs
+    }
+  }
+
+  const buildSeries = (bucket: Map<string, {distance: number; duration: number; elevation: number}>): WeeklySample[] => {
+    const series: WeeklySample[] = []
+
+    for (let offset = WEEKS_TO_DISPLAY - 1; offset >= 0; offset -= 1) {
+      const weekStartMs = latestWeekMs - offset * WEEK_MS
+      const weekDate = new Date(weekStartMs)
+      const key = getWeekStart(weekDate).toISOString()
+      const snapshot = bucket.get(key)
+
+      series.push({
+        start: key,
+        distanceKm: ((snapshot?.distance ?? 0) / 1000),
+        durationMinutes: snapshot?.duration ?? 0,
+        elevationGain: snapshot?.elevation ?? 0,
+      })
+    }
+
+    return series
+  }
+
+  return {
+    run: buildSeries(accumulator.run),
+    ride: buildSeries(accumulator.ride),
+  }
+}
+
 export default function ActivityTrendCard() {
   const {colors, isDark} = useTheme()
+  const activities = useStore(s => s.activities)
+  const userId = useStore(s => s.user?.id)
   const [discipline, setDiscipline] = useState<Discipline>('run')
-  const data = useMemo(() => SAMPLE_DATA[discipline], [discipline])
-  const [selectedIndex, setSelectedIndex] = useState(data.length - 1)
+  const [selectedIndex, setSelectedIndex] = useState(0)
   const [layoutWidth, setLayoutWidth] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const hasFetched = useRef(false)
 
-  // recompute selected index when discipline changes
-  React.useEffect(() => {
-    setSelectedIndex(SAMPLE_DATA[discipline].length - 1)
-  }, [discipline])
+  useEffect(() => {
+    if (!userId) {
+      setError('Please sign in to load activity trends')
+      hasFetched.current = false
+      return
+    }
+
+    setError(null)
+    hasFetched.current = false
+  }, [userId])
+
+  const fetchActivities = useCallback(async () => {
+    if (loading) {
+      return
+    }
+
+    if (!userId) {
+      setError('Please sign in to load activity trends')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      await activityService.fetchActivities({limit: 200})
+      hasFetched.current = true
+    } catch (err: unknown) {
+      console.warn('Failed to fetch activities for trend card', err)
+      const message = err instanceof Error ? err.message : 'Failed to load activities'
+      const normalized = message.toLowerCase().includes('auth') ? 'Please sign in again to view activity trends' : message
+      setError(normalized)
+    } finally {
+      setLoading(false)
+    }
+  }, [loading, userId])
+
+  useEffect(() => {
+    if (userId == null) {
+      hasFetched.current = false
+      return
+    }
+
+    if (!hasFetched.current && activities.length === 0) {
+      fetchActivities()
+    }
+  }, [activities.length, userId, fetchActivities])
+
+  const series = useMemo(() => buildWeeklySeries(activities), [activities])
+  const currentSeries = series[discipline]
+  const hasHistory = currentSeries.some(sample => sample.distanceKm > 0 || sample.durationMinutes > 0 || sample.elevationGain > 0)
+
+  useEffect(() => {
+    setSelectedIndex(currentSeries.length > 0 ? currentSeries.length - 1 : 0)
+  }, [discipline, currentSeries.length])
+
+  useEffect(() => {
+    setSelectedIndex(prev => {
+      if (currentSeries.length === 0) {
+        return 0
+      }
+      const maxIndex = currentSeries.length - 1
+      if (prev > maxIndex) {
+        return maxIndex
+      }
+      if (prev < 0) {
+        return maxIndex
+      }
+      return prev
+    })
+  }, [currentSeries.length])
+
+  const displayData = currentSeries.length > 0 ? currentSeries : [{
+    start: getWeekStart(new Date()).toISOString(),
+    distanceKm: 0,
+    durationMinutes: 0,
+    elevationGain: 0,
+  }]
+
+  const safeIndex = Math.min(Math.max(selectedIndex, 0), displayData.length - 1)
 
   const maxDistance = useMemo(() => {
-    const max = Math.max(...data.map(item => item.distanceKm))
+    const max = Math.max(...displayData.map(item => item.distanceKm))
     return max <= 0 ? 1 : Math.ceil(max)
-  }, [data])
+  }, [displayData])
 
   const fallbackWidth = useMemo(() => {
-    return data.length > 1
-      ? CHART_PADDING * 2 + DEFAULT_POINT_SPACING * (data.length - 1)
+    return displayData.length > 1
+      ? CHART_PADDING * 2 + DEFAULT_POINT_SPACING * (displayData.length - 1)
       : CHART_PADDING * 2 + DEFAULT_POINT_SPACING
-  }, [data.length])
+  }, [displayData.length])
 
   const chartWidth = layoutWidth > 0 ? layoutWidth : fallbackWidth
 
   const pointSpacing = useMemo(() => {
-    if (data.length <= 1) return 0
-    return (chartWidth - CHART_PADDING * 2) / (data.length - 1)
-  }, [chartWidth, data.length])
+    if (displayData.length <= 1) return 0
+    return (chartWidth - CHART_PADDING * 2) / (displayData.length - 1)
+  }, [chartWidth, displayData.length])
 
   const points = useMemo(() => {
-    return data.map((item, index) => {
+    return displayData.map((item, index) => {
       const x = CHART_PADDING + index * pointSpacing
       const ratio = item.distanceKm / maxDistance
       const usableHeight = CHART_HEIGHT - 40
       const y = CHART_HEIGHT - 10 - ratio * usableHeight
       return {x, y}
     })
-  }, [data, maxDistance, pointSpacing])
+  }, [displayData, maxDistance, pointSpacing])
 
-  const pointer = points[selectedIndex]
-  const pointerLabel = formatRange(data[selectedIndex].start)
+  const pointer = points[safeIndex]
+  const pointerLabel = formatRange(displayData[safeIndex].start)
 
   const polylinePoints = points.map(p => `${p.x},${p.y}`).join(' ')
-  const gridLines = Array.from({length: data.length}, (_, idx) => CHART_PADDING + idx * pointSpacing)
+  const gridLines = Array.from({length: displayData.length}, (_, idx) => CHART_PADDING + idx * pointSpacing)
 
   const monthLabels = useMemo(() => {
     const registry = new Map<string, number>()
-    data.forEach((item, index) => {
+    displayData.forEach((item, index) => {
       const label = dayjs(item.start).format('MMM').toUpperCase()
       if (!registry.has(label)) {
         registry.set(label, index)
@@ -131,19 +273,19 @@ export default function ActivityTrendCard() {
       label,
       x: CHART_PADDING + index * pointSpacing,
     }))
-  }, [data, pointSpacing])
+  }, [displayData, pointSpacing])
 
   const updateFromLocation = useCallback((locationX: number) => {
-    if (data.length === 0) return
+    if (displayData.length === 0) return
     if (pointSpacing <= 0) {
-      setSelectedIndex(data.length - 1)
+      setSelectedIndex(displayData.length - 1)
       return
     }
     const relative = locationX - CHART_PADDING
     const rawIndex = Math.round(relative / pointSpacing)
-    const nextIndex = Math.max(0, Math.min(data.length - 1, rawIndex))
+    const nextIndex = Math.max(0, Math.min(displayData.length - 1, rawIndex))
     setSelectedIndex(nextIndex)
-  }, [data.length, pointSpacing])
+  }, [displayData.length, pointSpacing])
 
   const panResponder = useMemo(
     () =>
@@ -160,11 +302,13 @@ export default function ActivityTrendCard() {
     [updateFromLocation],
   )
 
-  const summary = data[selectedIndex]
+  const summary = displayData[safeIndex]
+  const normalizedError = error?.toLowerCase() ?? ''
+  const isRetryableError = normalizedError.length > 0 && !normalizedError.includes('sign in')
   const metrics = [
     {label: 'Distance', value: `${summary.distanceKm.toFixed(1)} km`},
     {label: 'Time', value: formatDuration(summary.durationMinutes)},
-    {label: 'Elevation Gain', value: `${summary.elevationGain} m`},
+    {label: 'Elevation Gain', value: `${Math.round(summary.elevationGain ?? 0)} m`},
   ]
 
   const indicatorColor = colors.accent.primary
@@ -243,6 +387,27 @@ export default function ActivityTrendCard() {
         ))}
       </View>
 
+      <View className="flex-row items-center mt-3" style={{minHeight: 20}}>
+        {loading && (
+          <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <ActivityIndicator size="small" color={colors.accent.primary} style={{marginRight: 8}} />
+            <Text style={{color: colors.text.secondary}}>Updating weekly trend…</Text>
+          </View>
+        )}
+        {!loading && error && (
+          isRetryableError ? (
+            <Pressable onPress={fetchActivities}>
+              <Text style={{color: colors.accent.primary, fontWeight: '600'}}>Tap to retry: {error}</Text>
+            </Pressable>
+          ) : (
+            <Text style={{color: colors.text.secondary}}>{error}</Text>
+          )
+        )}
+        {!loading && !error && !hasHistory && (
+          <Text style={{color: colors.text.secondary}}>Start an activity to build your trend.</Text>
+        )}
+      </View>
+
       <View style={{height: CHART_HEIGHT + 40, marginTop: 24}} onLayout={handleLayout}>
         <Svg width="100%" height={CHART_HEIGHT} viewBox={`0 0 ${chartWidth} ${CHART_HEIGHT}`}>
           <Line x1={CHART_PADDING} y1={CHART_HEIGHT - 10} x2={chartWidth - CHART_PADDING} y2={CHART_HEIGHT - 10} stroke={isDark ? colors.border.dark : colors.border.light} strokeWidth={1} />
@@ -258,7 +423,7 @@ export default function ActivityTrendCard() {
               />
             )}
           {points.map((pt, idx) => (
-            <Circle key={idx} cx={pt.x} cy={pt.y} r={4} fill={idx === selectedIndex ? indicatorColor : colors.background.primary} stroke={indicatorColor} strokeWidth={2} />
+            <Circle key={idx} cx={pt.x} cy={pt.y} r={4} fill={idx === safeIndex ? indicatorColor : colors.background.primary} stroke={indicatorColor} strokeWidth={2} />
           ))}
         </Svg>
         <View style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 40}} {...panResponder.panHandlers} />
