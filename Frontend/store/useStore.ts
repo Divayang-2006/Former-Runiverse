@@ -9,6 +9,8 @@ import {
   Challenge,
   GridCell,
   Group,
+  MetricsKey,
+  MetricsSummary,
   User,
   UserStats,
   WalkSession,
@@ -102,6 +104,12 @@ interface ActivitySlice {
   clearActivities: () => void;
 }
 
+interface MetricsSlice {
+  metrics: Record<MetricsKey, MetricsSummary | null>;
+  setMetrics: (payload: Partial<Record<MetricsKey, MetricsSummary | null>>) => void;
+  clearMetrics: () => void;
+}
+
 // Create the combined store
 export const useStore = create<
   UserSlice &
@@ -109,7 +117,8 @@ export const useStore = create<
     TrackingSlice &
     TerritorySlice &
     ChallengeSlice &
-    ActivitySlice
+    ActivitySlice &
+    MetricsSlice
 >()(
   persist(
     (set, get) => ({
@@ -269,6 +278,28 @@ export const useStore = create<
         });
       },
       clearActivities: () => set({ activities: [] }),
+
+      // Metrics Slice
+      metrics: {
+        weekly: null,
+        yearToDate: null,
+        allTime: null,
+      },
+      setMetrics: (payload) =>
+        set((state) => ({
+          metrics: {
+            ...state.metrics,
+            ...payload,
+          },
+        })),
+      clearMetrics: () =>
+        set({
+          metrics: {
+            weekly: null,
+            yearToDate: null,
+            allTime: null,
+          },
+        }),
     }),
     {
       name: "runiverse-storage",
@@ -278,6 +309,7 @@ export const useStore = create<
         stats: state.stats,
         group: state.group,
         activities: state.activities,
+        metrics: state.metrics,
       }),
     }
   )

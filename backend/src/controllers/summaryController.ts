@@ -189,6 +189,248 @@ export const getWeeklySummary = async (
   }
 };
 
+interface GrowthPeriodResult {
+  start: Date;
+  end: Date;
+  days: number;
+  activities: number;
+  totalDistance: number;
+  totalDurationMinutes: number;
+  totalElevationGain: number;
+}
+
+const mapGrowthResult = (result: GrowthPeriodResult) => ({
+  start: result.start,
+  end: result.end,
+  days: result.days,
+  activities: result.activities,
+  distanceMeters: result.totalDistance,
+  durationMinutes: result.totalDurationMinutes,
+  elevationGain: result.totalElevationGain,
+});
+
+const getRollingWindowSummary = async (userId: string, windowDays: number) => {
+  const end = new Date();
+  const start = new Date(end.getTime() - windowDays * MS_PER_DAY);
+
+  const [result] = await Activity.aggregate<GrowthPeriodResult>([
+    {
+      $match: {
+        userId: new Types.ObjectId(userId),
+        startTime: {
+          $gte: start,
+          $lte: end,
+        },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        activities: { $sum: 1 },
+        totalDistance: { $sum: "$totalDistance" },
+        totalDurationMinutes: {
+          $sum: {
+            $divide: [{ $subtract: ["$endTime", "$startTime"] }, 1000 * 60],
+          },
+        },
+        totalElevationGain: { $sum: "$elevationGain" },
+      },
+    },
+    {
+      $addFields: {
+        start,
+        end,
+        days: windowDays,
+      },
+    },
+  ]);
+
+  if (!result) {
+    return mapGrowthResult({
+      start,
+      end,
+      days: windowDays,
+      activities: 0,
+      totalDistance: 0,
+      totalDurationMinutes: 0,
+      totalElevationGain: 0,
+    });
+  }
+
+  return mapGrowthResult(result);
+};
+
+const getYearToDateSummary = async (userId: string) => {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+  const end = now;
+
+  const [result] = await Activity.aggregate<GrowthPeriodResult>([
+    {
+      $match: {
+        userId: new Types.ObjectId(userId),
+        startTime: {
+          $gte: start,
+          $lte: end,
+        },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        activities: { $sum: 1 },
+        totalDistance: { $sum: "$totalDistance" },
+        totalDurationMinutes: {
+          $sum: {
+            $divide: [{ $subtract: ["$endTime", "$startTime"] }, 1000 * 60],
+          },
+        },
+        totalElevationGain: { $sum: "$elevationGain" },
+      },
+    },
+    {
+      $addFields: {
+        start,
+        end,
+        days: diffInUtcDays(end, start) + 1,
+      },
+    },
+  ]);
+
+  if (!result) {
+    return mapGrowthResult({
+      start,
+      end,
+      days: diffInUtcDays(end, start) + 1,
+      activities: 0,
+      totalDistance: 0,
+      totalDurationMinutes: 0,
+      totalElevationGain: 0,
+    });
+  }
+
+  return mapGrowthResult(result);
+};
+
+const getAllTimeSummary = async (userId: string) => {
+  const earliestActivity = await Activity.findOne({ userId: new Types.ObjectId(userId) }).sort({ startTime: 1 }).select({ startTime: 1 }).lean();
+
+  if (!earliestActivity) {
+    const emptyPeriod = mapGrowthResult({
+      start: new Date(),
+      end: new Date(),
+      days: 0,
+      activities: 0,
+      totalDistance: 0,
+      totalDurationMinutes: 0,
+      totalElevationGain: 0,
+    });
+    return emptyPeriod;
+  }
+
+  const start = earliestActivity.startTime instanceof Date ? earliestActivity.startTime : new Date(earliestActivity.startTime);
+  const end = new Date();
+
+  const [result] = await Activity.aggregate<GrowthPeriodResult>([
+    {
+      $match: {
+        userId: new Types.ObjectId(userId),
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        activities: { $sum: 1 },
+        totalDistance: { $sum: "$totalDistance" },
+        totalDurationMinutes: {
+          $sum: {
+            $divide: [{ $subtract: ["$endTime", "$startTime"] }, 1000 * 60],
+          },
+        },
+        totalElevationGain: { $sum: "$elevationGain" },
+      },
+    },
+    {
+      $addFields: {
+        start,
+        end,
+        days: diffInUtcDays(end, start) + 1,
+      },
+    },
+  ]);
+
+  if (!result) {
+    return mapGrowthResult({
+      start,
+      end,
+      days: diffInUtcDays(end, start) + 1,
+      activities: 0,
+      totalDistance: 0,
+      totalDurationMinutes: 0,
+      totalElevationGain: 0,
+    });
+  }
+
+  return mapGrowthResult(result);
+};
+
+export const getMetricsSummary = async (
+  req: AuthenticatedRequest & Request<unknown, unknown, unknown, { userId?: string; includeAllTime?: string; includeYearToDate?: string; includeWeekly?: string }> ,
+  res: Response
+): Promise<Response> => {
+  try {
+    if (!req.user?._id && !req.query.userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const userId = req.query.userId ?? req.user!._id.toString();
+
+    if (!Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: "Invalid userId" });
+    }
+
+    const includeAllTime = req.query.includeAllTime !== "false";
+    const includeYearToDate = req.query.includeYearToDate !== "false";
+    const includeWeekly = req.query.includeWeekly !== "false";
+
+    const tasks: Promise<Record<string, unknown>>[] = [];
+
+    if (includeWeekly) {
+      tasks.push(
+        getRollingWindowSummary(userId, 7).then((summary) => ({
+          weekly: summary,
+        }))
+      );
+    }
+
+    if (includeYearToDate) {
+      tasks.push(
+        getYearToDateSummary(userId).then((summary) => ({
+          yearToDate: summary,
+        }))
+      );
+    }
+
+    if (includeAllTime) {
+      tasks.push(
+        getAllTimeSummary(userId).then((summary) => ({
+          allTime: summary,
+        }))
+      );
+    }
+
+    const segments = await Promise.all(tasks);
+
+    return res.json({
+      success: true,
+      data: Object.assign({}, ...segments),
+    });
+  } catch (error) {
+    console.error("getMetricsSummary error:", error);
+    return res.status(500).json({ message: "Failed to build metrics summary" });
+  }
+};
+
 export const getStreakSummary = async (
   req: Request<unknown, unknown, unknown, { userId?: string; windowDays?: string }> ,
   res: Response

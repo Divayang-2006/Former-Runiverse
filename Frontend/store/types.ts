@@ -35,6 +35,18 @@ export interface Activity {
   updatedAt: string;
 }
 
+export type MetricsKey = "weekly" | "yearToDate" | "allTime";
+
+export interface MetricsSummary {
+  start: string;
+  end: string;
+  days: number;
+  activities: number;
+  distanceMeters: number;
+  durationMinutes: number;
+  elevationGain: number;
+}
+
 export interface Group {
   id: string;
   name: string;
