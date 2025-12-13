@@ -1,13 +1,19 @@
-import React, {useMemo, useState} from 'react'
+import React, {useEffect, useMemo, useState} from 'react'
 import {View, Text, TouchableOpacity} from 'react-native'
 import {Ionicons} from '@expo/vector-icons'
 import dayjs, {Dayjs} from 'dayjs'
 import {useTheme} from '../context/ThemeContext'
+import {useStore} from '@/store/useStore'
+import {summaryService, type StreakSummaryData} from '@/services/summaryService'
 
 export default function CalendarSection() {
   const today = dayjs()
   const [base, setBase] = useState<Dayjs>(() => dayjs().startOf('month'))
-    const {colors, isDark} = useTheme()
+  const {colors, isDark} = useTheme()
+  const user = useStore(s => s.user)
+  const [streakData, setStreakData] = useState<StreakSummaryData | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
 
   const daysInMonth = base.daysInMonth()
   const firstDayIndex = base.startOf('month').day()
@@ -18,21 +24,69 @@ export default function CalendarSection() {
     setBase((b: Dayjs) => b.add(delta, 'month').startOf('month'))
   }
 
-  const streakDays = 12
-  const streakActivities = 4
+  useEffect(() => {
+    let cancelled = false
+
+    if (!user?.id) {
+      setStreakData(null)
+      setFetchError(null)
+      setIsLoading(false)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const loadStreak = async () => {
+      setIsLoading(true)
+      setFetchError(null)
+
+      try {
+        const data = await summaryService.getStreakSummary()
+        if (!cancelled) {
+          setStreakData(data)
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          console.warn('Failed to load streak summary', error)
+          const message = error instanceof Error ? error.message : 'Failed to load streak data'
+          const normalizedMessage = typeof message === 'string' && message.toLowerCase().includes('auth') ? 'Please sign in again to view streak data' : message
+          setFetchError(normalizedMessage)
+          setStreakData(null)
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    loadStreak()
+
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id])
+
+  const streakDays = streakData?.streakDays ?? 0
+  const streakActivities = streakData?.streakActivities ?? 0
 
   const markedDays = useMemo(() => {
-    const days = daysInMonth
+    if (!streakData) {
+      return new Set<number>()
+    }
+
     const set = new Set<number>()
-    let seed = base.month() + base.year() * 31
-    while (set.size < Math.min(5, days)) {
-      seed = (seed * 9301 + 49297) % 233280
-      const rnd = seed / 233280
-      const d = Math.floor(rnd * days) + 1
-      set.add(d)
+    for (const iso of streakData.activeDays) {
+      const parsed = dayjs(iso)
+      if (!parsed.isValid()) {
+        continue
+      }
+      if (parsed.year() === base.year() && parsed.month() === base.month()) {
+        set.add(parsed.date())
+      }
     }
     return set
-  }, [base, daysInMonth])
+  }, [base, streakData])
 
   const grid = useMemo(() => {
     const arr: (number | null)[] = []
@@ -99,7 +153,7 @@ export default function CalendarSection() {
             Your Streak
           </Text>
           <Text className="text-sm font-medium" style={{color: colors.text.primary}}>
-            {streakDays} Days
+            {isLoading ? '--' : `${streakDays} Days`}
           </Text>
         </View>
         <View className="flex-1 items-end">
@@ -107,7 +161,7 @@ export default function CalendarSection() {
             Streak Activities
           </Text>
           <Text className="text-sm font-medium" style={{color: colors.text.primary}}>
-            {streakActivities}
+            {isLoading ? '--' : streakActivities}
           </Text>
         </View>
       </View>
@@ -155,6 +209,11 @@ export default function CalendarSection() {
           ))}
         </View>
       </View>
+      {fetchError ? (
+        <Text className="mt-2 text-xs" style={{color: colors.status.error}}>
+          {fetchError}
+        </Text>
+      ) : null}
     </View>
   )
 }

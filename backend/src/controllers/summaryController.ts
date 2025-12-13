@@ -1,6 +1,29 @@
 import type { Request, Response } from "express";
 import { Types } from "mongoose";
 import Activity from "../models/Activity.js";
+import type { UserDocument } from "../models/User.js";
+
+interface AuthenticatedRequest extends Request {
+  user?: UserDocument;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const STREAK_LOOKBACK_DAYS = 120;
+
+const formatUtcDateKey = (date: Date): string => {
+  const year = date.getUTCFullYear();
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getUTCDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const parseUtcDateKey = (key: string): Date => new Date(`${key}T00:00:00.000Z`);
+
+const diffInUtcDays = (later: Date, earlier: Date): number => {
+  const laterMs = Date.UTC(later.getUTCFullYear(), later.getUTCMonth(), later.getUTCDate());
+  const earlierMs = Date.UTC(earlier.getUTCFullYear(), earlier.getUTCMonth(), earlier.getUTCDate());
+  return Math.round((laterMs - earlierMs) / MS_PER_DAY);
+};
 
 const buildSummary = async (userId: string, since: Date) => {
   if (!Types.ObjectId.isValid(userId)) {
@@ -43,6 +66,72 @@ const buildSummary = async (userId: string, since: Date) => {
     avgSpeed: result.avgSpeed ?? 0,
     activities: result.activities ?? 0,
     since,
+  };
+};
+
+interface DailyActivityStat {
+  _id: string;
+  count: number;
+}
+
+const computeStreakSummary = (dailyStats: DailyActivityStat[]) => {
+  if (dailyStats.length === 0) {
+    return {
+      streakDays: 0,
+      streakActivities: 0,
+      streakDates: [] as string[],
+    };
+  }
+
+  const todayKey = formatUtcDateKey(new Date());
+  const mostRecentKey = dailyStats[0]._id;
+  const daysSinceMostRecent = diffInUtcDays(parseUtcDateKey(todayKey), parseUtcDateKey(mostRecentKey));
+
+  if (daysSinceMostRecent > 1) {
+    return {
+      streakDays: 0,
+      streakActivities: 0,
+      streakDates: [] as string[],
+    };
+  }
+
+  const streakDates: string[] = [];
+  let streakDays = 0;
+  let streakActivities = 0;
+  let expectedPreviousDate: Date | null = null;
+
+  for (const stat of dailyStats) {
+    const statDate = parseUtcDateKey(stat._id);
+
+    if (!expectedPreviousDate) {
+      streakDates.push(stat._id);
+      streakDays += 1;
+      streakActivities += stat.count;
+      expectedPreviousDate = statDate;
+      continue;
+    }
+
+    const gap = diffInUtcDays(expectedPreviousDate, statDate);
+
+    if (gap === 0) {
+      // Defensive: aggregation groups by day so this should not happen.
+      continue;
+    }
+
+    if (gap !== 1) {
+      break;
+    }
+
+    streakDates.push(stat._id);
+    streakDays += 1;
+    streakActivities += stat.count;
+    expectedPreviousDate = statDate;
+  }
+
+  return {
+    streakDays,
+    streakActivities,
+    streakDates,
   };
 };
 
@@ -97,6 +186,69 @@ export const getWeeklySummary = async (
   } catch (error) {
     console.error("getWeeklySummary error:", error);
     return res.status(500).json({ message: "Failed to build weekly summary" });
+  }
+};
+
+export const getStreakSummary = async (
+  req: Request<unknown, unknown, unknown, { userId?: string; windowDays?: string }> ,
+  res: Response
+): Promise<Response> => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const userId = req.query.userId ?? authReq.user?._id?.toString();
+
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    if (!Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: "Invalid userId" });
+    }
+
+    const requestedWindow = Number(req.query.windowDays);
+    const windowDays = Number.isFinite(requestedWindow)
+      ? Math.min(Math.max(Math.floor(requestedWindow), 1), 365)
+      : STREAK_LOOKBACK_DAYS;
+
+    const since = new Date(Date.now() - windowDays * MS_PER_DAY);
+
+    const dailyStats = await Activity.aggregate<DailyActivityStat>([
+      {
+        $match: {
+          userId: new Types.ObjectId(userId),
+          startTime: { $gte: since },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$startTime",
+            },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: -1 } },
+    ]);
+
+    const { streakDays, streakActivities, streakDates } = computeStreakSummary(dailyStats);
+
+    return res.json({
+      success: true,
+      data: {
+        userId,
+        streakDays,
+        streakActivities,
+        activeDays: dailyStats.map((stat) => stat._id),
+        streakDates,
+        windowDays,
+      },
+    });
+  } catch (error) {
+    console.error("getStreakSummary error:", error);
+    return res.status(500).json({ message: "Failed to build streak summary" });
   }
 };
 
