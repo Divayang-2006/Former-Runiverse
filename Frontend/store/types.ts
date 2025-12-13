@@ -10,6 +10,8 @@ export interface User {
   territories?: number;
   displayName?: string | null;
   city?: string | null;
+  mobileNumber?: string | null;
+  bio?: string | null;
   lifetimeSteps?: number;
   lifetimeDistance?: number;
   streak?: number;

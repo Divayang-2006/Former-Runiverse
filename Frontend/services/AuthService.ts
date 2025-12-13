@@ -55,11 +55,11 @@ class AuthService {
 
   // 🟢 LOGIN
   async login(
-    email: string,
+    identifier: string,
     password: string
   ): Promise<{ success: boolean; message: string; user?: any; token?: string }> {
     try {
-      const response = await api.post<any>("/api/auth/login", { email, password });
+      const response = await api.post<any>("/api/auth/login", { identifier, password });
 
       if (response?.token) {
         await this.persistToken(response.token);
