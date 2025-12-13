@@ -101,6 +101,7 @@ export default function ActivitiesScreen() {
   const user = useStore(state => state.user)
   const activities = useStore(state => state.activities)
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [activeFilter, setActiveFilter] = useState<FilterValue>('All')
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -140,8 +141,17 @@ export default function ActivitiesScreen() {
     fetchActivities('refresh')
   }, [fetchActivities])
 
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedQuery(query)
+    }, 500)
+    return () => {
+      clearTimeout(handle)
+    }
+  }, [query])
+
   const filteredActivities = useMemo(() => {
-    const lowerQuery = query.trim().toLowerCase()
+    const lowerQuery = debouncedQuery.trim().toLowerCase()
     return cards.filter(card => {
       const matchesFilter = (() => {
         switch (activeFilter) {
@@ -166,7 +176,7 @@ export default function ActivitiesScreen() {
 
       return card.searchTokens.includes(lowerQuery)
     })
-  }, [activeFilter, cards, query])
+  }, [activeFilter, cards, debouncedQuery])
 
   return (
     <SafeAreaView style={{flex: 1, backgroundColor: colors.background.primary}}>
