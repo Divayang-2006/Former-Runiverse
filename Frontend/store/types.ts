@@ -19,6 +19,22 @@ export interface User {
   token?: string;
 }
 
+export interface Activity {
+  id: string;
+  userId: string;
+  activityType: string;
+  totalDistance: number;
+  calories: number;
+  avgSpeed: number;
+  startTime: string;
+  endTime: string;
+  loopDetected: boolean;
+  hexesVisited: string[];
+  detectedRoutes: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Group {
   id: string;
   name: string;

@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../services/AuthService';
 import { useStore } from '@/store/useStore';
 import { profileService } from '@/services/profileService';
+import { activityService } from '@/services/activityService';
 import axios from "axios";
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
@@ -76,6 +77,12 @@ const LoginScreen = () => {
 
         if (normalizedUser) {
           setUser(normalizedUser as any);
+        }
+
+        try {
+          await activityService.fetchActivities({ limit: 50 });
+        } catch (activityError) {
+          console.warn('Activity prefetch failed:', activityError);
         }
 
         Alert.alert('✅ Success', result.message || 'Logged in successfully');

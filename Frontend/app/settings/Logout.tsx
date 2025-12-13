@@ -13,6 +13,7 @@ export default function Logout() {
   const { theme } = useTheme();
   const router = useRouter();
   const setUser = useStore((s) => s.setUser);
+  const clearActivities = useStore((s) => s.clearActivities);
   const user = useStore((s) => s.user);
   const isDarkMode = theme === "dark";
 
@@ -38,6 +39,7 @@ export default function Logout() {
           onPress: async () => {
             await authService.logout();
             setUser(null);
+            clearActivities();
             router.replace("/login");
           }
         }
