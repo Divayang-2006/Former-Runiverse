@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../services/AuthService';
 import { useStore } from '@/store/useStore';
 import { profileService } from '@/services/profileService';
+import { activityService } from '@/services/activityService';
 import axios from "axios";
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
@@ -18,7 +19,7 @@ const LoginScreen = () => {
   const setUser = useStore((s) => s.setUser);
   const user = useStore((s) => s.user);
 
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -30,15 +31,15 @@ const LoginScreen = () => {
   }, [user, router]);
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Missing Info', 'Email and password are required');
+    if (!identifier || !password) {
+      Alert.alert('Missing Info', 'Email or username and password are required');
       return;
     }
 
     setLoading(true);
 
     try {
-      const result = await authService.login(email, password);
+      const result = await authService.login(identifier.trim(), password);
 
       if (result.success && result.token) {
         let normalizedUser: any = null;
@@ -76,6 +77,12 @@ const LoginScreen = () => {
 
         if (normalizedUser) {
           setUser(normalizedUser as any);
+        }
+
+        try {
+          await activityService.fetchActivities({ limit: 50 });
+        } catch (activityError) {
+          console.warn('Activity prefetch failed:', activityError);
         }
 
         Alert.alert('✅ Success', result.message || 'Logged in successfully');
@@ -121,13 +128,12 @@ const LoginScreen = () => {
 
         <Animated.View entering={FadeInDown.duration(600).delay(200)} className={`rounded-2xl mb-4 ${inputBgClass} shadow-sm`}>
           <TextInput
-            placeholder="Email Address"
+            placeholder="Email or Username"
             placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'}
             className={`p-5 text-base ${inputTextClass}`}
-            keyboardType="email-address"
             autoCapitalize="none"
-            value={email}
-            onChangeText={setEmail}
+            value={identifier}
+            onChangeText={setIdentifier}
             editable={!loading}
           />
         </Animated.View>
