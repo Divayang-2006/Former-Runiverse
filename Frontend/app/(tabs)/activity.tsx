@@ -9,12 +9,17 @@ import {
   PanResponder,
   ScrollView,
   StatusBar,
+  Alert,
 } from 'react-native';
 import MapboxGL from '@rnmapbox/maps';
 import { Ionicons, MaterialIcons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ScreenWrapper } from "@/components/layout/ScreenWrapper";
 
-// Keeping your original Token and Styles
+// --- LOGIC IMPORTS ---
+import { ActivityEngine } from '@/services/ActivityServices/ActivityEngine';
+import { useActivityStore } from '@/services/ActivityServices/useActivityStore';
+
+// Keeping your original Token
 MapboxGL.setAccessToken(
   'pk.eyJ1IjoiaW1hZ2luZS14IiwiYSI6ImNtajJnYzhmZjAyd3YzZHM4ZngweGRyeTcifQ.gU_IqqNcuAXXeJbUVKA9_A'
 );
@@ -28,71 +33,113 @@ const STYLES = {
 
 type ActivityType = 'Run' | 'Walk' | 'Cycling';
 
-const SplitAvgVisual = ({ scale = 1 }: { scale?: number }) => (
-  <View style={{ transform: [{ scale }] }}>
-    <View style={styles.splitVisualTop}>
-      <View style={styles.splitVisualDash} />
-      <View style={styles.splitVisualDot} />
-      <View style={styles.splitVisualDash} />
-      <View style={styles.splitVisualDash} />
-    </View>
-    <View style={styles.splitVisualBottom}>
-      <View style={styles.splitVisualDot} />
-    </View>
-  </View>
-);
+// --- HELPER FUNCTIONS ---
+const formatDuration = (seconds: number) => {
+  if (!seconds) return '00:00:00';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};
+
+const formatPace = (secondsPerKm: number) => {
+  if (!secondsPerKm || secondsPerKm === Infinity) return '-.-';
+  const m = Math.floor(secondsPerKm / 60);
+  const s = Math.round(secondsPerKm % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
 
 export default function ActivityScreen() {
+  // --- STORE HOOKS ---
+  // We subscribe to specific parts of the store to trigger re-renders
+  const status = useActivityStore((s) => s.status);
+  const duration = useActivityStore((s) => s.durationSeconds);
+  const distance = useActivityStore((s) => s.distanceMeters);
+  const avgPace = useActivityStore((s) => s.averagePaceSeconds);
+  
+  // Derived state
+  const isRecording = status === 'RECORDING';
+
+  // --- LOCAL UI STATE ---
   const [preset, setPreset] = useState<string>('night');
   const [userCoords, setUserCoords] = useState<[number, number] | null>(null);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [autoFollow, setAutoFollow] = useState<boolean>(true);
-  const [isActive, setIsActive] = useState<boolean>(false);
+  
   const [selectedActivity, setSelectedActivity] = useState<ActivityType>('Run');
   const [showActivityMenu, setShowActivityMenu] = useState<boolean>(false);
+  
   const cameraRef = useRef<MapboxGL.Camera | null>(null);
   const sheetAnim = useRef(new Animated.Value(0)).current;
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
+  // --- HANDLERS ---
+
+  const handleStartStop = async () => {
+    const engine = ActivityEngine.getInstance();
+    
+    if (isRecording) {
+      // STOPPING
+      console.log('[ActivityUI] User pressed STOP');
+      try {
+        const result = await engine.stopActivity();
+        if (result.success) {
+          console.log('[ActivityUI] Activity saved & uploaded successfully');
+          Alert.alert('Great Job!', 'Activity saved successfully.');
+        } else {
+          console.error('[ActivityUI] Upload failed', result.error);
+          Alert.alert('Saved Locally', 'Upload failed, but your run is saved on device.');
+        }
+      } catch (e) {
+        console.error('[ActivityUI] CRITICAL ERROR stopping activity', e);
+      }
+    } else {
+      // STARTING
+      console.log('[ActivityUI] User pressed START');
+      try {
+        await engine.startActivity();
+        console.log('[ActivityUI] Engine started successfully');
+      } catch (e) {
+        console.error('[ActivityUI] Failed to start engine', e);
+        Alert.alert('Error', 'Could not start GPS tracking. Check permissions.');
+      }
+    }
+    
+    setShowActivityMenu(false);
+  };
+
   const onUserLocationUpdate = (location: MapboxGL.Location) => {
     const { latitude, longitude, accuracy: locationAccuracy } = location.coords;
-    setUserCoords([longitude, latitude]);
+    setUserCoords([longitude, latitude]); // Update local puck
+    
     if (Number.isFinite(locationAccuracy)) {
       setAccuracy(Math.min(Math.max(locationAccuracy, 5), 150));
     }
   };
 
-  // 2. LOGIC: Re-center functionality (Google Maps Style)
+  // Re-center functionality
   const handleRecenter = () => {
-    // Always set to true (don't toggle)
+    console.log('[ActivityUI] Recenter clicked');
     setAutoFollow(true);
-    
-    // If we have coordinates, fly to them immediately
     if (userCoords && cameraRef.current) {
       cameraRef.current.setCamera({
         centerCoordinate: userCoords,
         zoomLevel: 16,
         pitch: 60,
-
-        animationDuration: 1000, // Smooth fly-to animation
-        heading: 0, // Optional: Reset rotation to North like G-Maps
+        animationDuration: 1000,
+        heading: 0,
       });
     }
   };
 
-  // 3. LOGIC: Stop following when user touches map
   const onMapTouch = () => {
     if (autoFollow) {
       setAutoFollow(false);
     }
   };
 
-  const toggleActiveState = () => {
-    setIsActive((prev) => !prev);
-    setShowActivityMenu(false);
-  };
-
   const toggleActivityMenu = () => {
+    if (isRecording) return; // Disable changing activity while running
     setShowActivityMenu((prev) => !prev);
   };
 
@@ -101,29 +148,28 @@ export default function ActivityScreen() {
     setShowActivityMenu(false);
   };
 
+  // --- UI RENDER HELPERS ---
+
   const renderActivityIcon = (activity: ActivityType, size = 24, color = '#FF5500') => {
     switch (activity) {
-      case 'Walk':
-        return <MaterialIcons name="directions-walk" size={size} color={color} />;
-      case 'Cycling':
-        return <MaterialCommunityIcons name="bike" size={size} color={color} />;
-      default:
-        return <MaterialCommunityIcons name="shoe-sneaker" size={size} color={color} />;
+      case 'Walk': return <MaterialIcons name="directions-walk" size={size} color={color} />;
+      case 'Cycling': return <MaterialCommunityIcons name="bike" size={size} color={color} />;
+      default: return <MaterialCommunityIcons name="shoe-sneaker" size={size} color={color} />;
     }
   };
 
+  // --- ANIMATIONS & EFFECTS ---
+
   // Dimensions
   const screenHeight = Dimensions.get('window').height;
-  const collapsedHeight = 300; // Adjusted for the card height in screenshot
+  const collapsedHeight = 300;
   const expandedHeight = screenHeight;
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_, gestureState) => {
-          return Math.abs(gestureState.dy) > 5;
-        },
+        onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
         onPanResponderMove: (_, gestureState) => {
           const newValue = isExpanded ? 1 - gestureState.dy / 300 : -gestureState.dy / 300;
           if (newValue >= 0 && newValue <= 1) {
@@ -150,7 +196,7 @@ export default function ActivityScreen() {
   );
 
   useEffect(() => {
-    // Logic for time of day kept, but UI is strictly dark mode based on image
+    // Time of day logic
     const hour = new Date().getHours();
     if (hour >= 5 && hour < 9) setPreset('dawn');
     else if (hour >= 9 && hour < 17) setPreset('day');
@@ -177,6 +223,7 @@ export default function ActivityScreen() {
     outputRange: [30, 0],
   });
 
+  // --- RENDER ---
   return (
     <ScreenWrapper unsafe={true}>
       <StatusBar barStyle="light-content" />
@@ -185,18 +232,19 @@ export default function ActivityScreen() {
         <Animated.View style={{ flex: 1, opacity: sheetAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
           <MapboxGL.MapView
             style={{ flex: 1 }}
-            styleURL={STYLES[preset]}
+            styleURL={STYLES[preset as keyof typeof STYLES] || STYLES.night}
             scaleBarEnabled={false}
             compassEnabled={false}
-            // 4. EVENT: Detect user interaction
             onTouchStart={onMapTouch} 
           >
+            {/* Note: We use Mapbox's UserLocation for smoother visual tracking (60fps)
+              The Engine records the actual data in background. 
+            */}
             <MapboxGL.UserLocation visible onUpdate={onUserLocationUpdate} />
             
             <MapboxGL.Camera
               ref={cameraRef}
               zoomLevel={16}
-              // Only pass coordinates if we are in autoFollow mode
               centerCoordinate={autoFollow ? userCoords ?? undefined : undefined}
               followUserLocation={autoFollow}
               followZoomLevel={16}
@@ -204,9 +252,8 @@ export default function ActivityScreen() {
               animationDuration={1000}
             />
             
-            {/* User Puck Layers remain the same */}
             {userCoords && (
-              <MapboxGL.ShapeSource id="user-puck" shape={{ type: 'Feature', geometry: { type: 'Point', coordinates: userCoords } }}>
+              <MapboxGL.ShapeSource id="user-puck" shape={{ type: 'Feature', geometry: { type: 'Point', coordinates: userCoords }, properties: {} }}>
                 <MapboxGL.CircleLayer
                   id="puck-accuracy"
                   style={{ circleRadius: 13 + Math.min(accuracy || 0, 120) * 0.25, circleColor: '#70B8FF', circleOpacity: 0.2, circlePitchAlignment: 'map' }}
@@ -229,7 +276,6 @@ export default function ActivityScreen() {
                   <Text style={{color:'#FFF', fontWeight:'bold'}}>3D</Text>
                 </TouchableOpacity>
                 
-                {/* 5. UI: Dynamic Styles based on autoFollow state */}
                 <TouchableOpacity 
                   style={[
                     styles.mapBtn, 
@@ -240,14 +286,12 @@ export default function ActivityScreen() {
                    <MaterialIcons 
                       name="my-location" 
                       size={20} 
-                      // Blue when tracking, White when not (Like Google Maps)
                       color={autoFollow ? "#4285F4" : "#FFFFFF"} 
                    />
                 </TouchableOpacity>
              </View>
           </View>
         </Animated.View>
-
 
         <Animated.View
           style={[
@@ -269,8 +313,10 @@ export default function ActivityScreen() {
             <View style={styles.collapsedContent}>
               {/* GPS Signal Warning */}
               <View style={styles.gpsWarning}>
-                <Ionicons name="stats-chart" size={16} color="#F87171" style={{transform: [{rotate: '90deg'}]}} />
-                <Text style={styles.gpsText}>No GPS signal</Text>
+                <Ionicons name="stats-chart" size={16} color={accuracy && accuracy < 20 ? "#10B981" : "#F87171"} style={{transform: [{rotate: '90deg'}]}} />
+                <Text style={[styles.gpsText, accuracy && accuracy < 20 && {color: "#10B981"}]}>
+                   {accuracy ? (accuracy < 20 ? "GPS Signal Good" : "Weak GPS Signal") : "Acquiring GPS..."}
+                </Text>
                 <View style={{flex:1}} />
                 <TouchableOpacity style={styles.expandButton} onPress={() => setIsExpanded(true)}>
                   <Feather name="maximize-2" size={16} color="#666" />
@@ -280,17 +326,17 @@ export default function ActivityScreen() {
               {/* Metrics Row */}
               <View style={styles.collapsedMetrics}>
                  <View style={styles.metricItem}>
-                    <Text style={styles.metricValBig}>00:00</Text>
+                    <Text style={styles.metricValBig}>{formatDuration(duration)}</Text>
                     <Text style={styles.metricLabel}>Time</Text>
                  </View>
                  
                  <View style={styles.metricItem}>
-                    <Text style={styles.metricValBig}>-.-.-</Text>
-                    <Text style={styles.metricLabel}>Split avg. (/km)</Text>
+                    <Text style={styles.metricValBig}>{formatPace(avgPace)}</Text>
+                    <Text style={styles.metricLabel}>Avg Pace (/km)</Text>
                  </View>
 
                  <View style={styles.metricItem}>
-                    <Text style={styles.metricValBig}>0</Text>
+                    <Text style={styles.metricValBig}>{(distance / 1000).toFixed(2)}</Text>
                     <Text style={styles.metricLabel}>Distance (km)</Text>
                  </View>
               </View>
@@ -305,26 +351,28 @@ export default function ActivityScreen() {
                </View>
 
                {/* Huge Timer */}
-               <Text style={styles.hugeTimer}>00:00:00</Text>
+               <Text style={styles.hugeTimer}>{formatDuration(duration)}</Text>
 
                {/* Visual Indicator */}
                <View style={styles.centerVisual}>
-                <Text style={{fontSize:85}}>-.-.-</Text>
+                <Text style={{fontSize:85, color:'#FFF', fontWeight:'700', fontVariant:['tabular-nums']}}>
+                  {formatPace(avgPace)}
+                </Text>
                </View>
 
-               <Text style={styles.centerLabel}>Split avg. (/km)</Text>
+               <Text style={styles.centerLabel}>Avg Pace (/km)</Text>
 
                {/* Distance */}
-               <Text style={styles.hugeDistance}>0</Text>
+               <Text style={styles.hugeDistance}>{(distance / 1000).toFixed(2)}</Text>
                <Text style={styles.centerLabel}>Distance (km)</Text>
 
-               {/* Splits Section */}
+               {/* Splits Section Placeholder */}
                <View style={styles.splitsSection}>
-                  <Text style={styles.sectionTitle}>Splits (/km)</Text>
+                  <Text style={styles.sectionTitle}>Splits (Coming Soon)</Text>
                   <View style={styles.splitsRow}>
-                     <View style={styles.splitBox} />
-                     <View style={styles.splitBox} />
-                     <View style={styles.splitBox} />
+                      <View style={styles.splitBox} />
+                      <View style={styles.splitBox} />
+                      <View style={styles.splitBox} />
                   </View>
                </View>
 
@@ -333,7 +381,7 @@ export default function ActivityScreen() {
             </ScrollView>
           )}
 
-          {/* FIXED BOTTOM CONTROLS (Common to both views) */}
+          {/* FIXED BOTTOM CONTROLS */}
           <View style={styles.bottomControls}>
             {/* Left: Activity Selector */}
             <View style={styles.activitySelector}>
@@ -353,7 +401,12 @@ export default function ActivityScreen() {
                 </View>
               )}
 
-              <TouchableOpacity style={styles.controlItem} onPress={toggleActivityMenu} activeOpacity={0.85}>
+              <TouchableOpacity 
+                style={[styles.controlItem, isRecording && {opacity: 0.5}]} 
+                onPress={toggleActivityMenu} 
+                activeOpacity={0.85}
+                disabled={isRecording}
+              >
                 <View style={[styles.circleBtn, styles.runBtnBg]}>
                   {renderActivityIcon(selectedActivity, 20)}
                   <View style={styles.checkBadge}>
@@ -365,29 +418,29 @@ export default function ActivityScreen() {
             </View>
 
             {/* Center: Start / Stop Button */}
-            <TouchableOpacity style={styles.controlItem} onPress={toggleActiveState} activeOpacity={0.85}>
-              <View style={[styles.playBtn, isActive && styles.stopBtn]}>
+            <TouchableOpacity style={styles.controlItem} onPress={handleStartStop} activeOpacity={0.85}>
+              <View style={[styles.playBtn, isRecording && styles.stopBtn]}>
                 <Ionicons
-                  name={isActive ? 'stop' : 'play'}
+                  name={isRecording ? 'stop' : 'play'}
                   size={30}
-                  color={isActive ? '#FF5500' : '#FFF'}
-                  style={!isActive ? { marginLeft: 4 } : undefined}
+                  color={isRecording ? '#FF5500' : '#FFF'}
+                  style={!isRecording ? { marginLeft: 4 } : undefined}
                 />
               </View>
               <Text
                 style={[
                   styles.controlText,
-                  isActive ? styles.stopText : styles.activeText,
+                  isRecording ? styles.stopText : styles.activeText,
                 ]}
               >
-                {isActive ? 'Stop' : 'Start'}
+                {isRecording ? 'Stop' : 'Start'}
               </Text>
             </TouchableOpacity>
 
             {/* Right: Add Route */}
             <TouchableOpacity style={styles.controlItem}>
               <View style={[styles.circleBtn, styles.routeBtnBg]}>
-                 <MaterialCommunityIcons name="source-branch" size={20} color="#FFF" />
+                  <MaterialCommunityIcons name="source-branch" size={20} color="#FFF" />
               </View>
               <Text style={styles.controlText}>Add{'\n'}Route</Text>
             </TouchableOpacity>
@@ -514,28 +567,6 @@ const styles = StyleSheet.create({
     marginTop: 40,
     marginBottom: 10,
   },
-  splitVisualTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  splitVisualBottom: {
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  splitVisualDash: {
-    width: 32,
-    height: 4,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 2,
-  },
-  splitVisualDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#E5E7EB',
-  },
   centerLabel: {
     color: '#9CA3AF',
     fontSize: 14,
@@ -607,9 +638,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(63,63,70,0.6)',
   },
-  activityMenuItemActive: {
-    backgroundColor: '#FF5500',
-  },
   controlItem: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -623,7 +651,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   runBtnBg: {
-    backgroundColor: '#3A1807', // Dark brown/orange background
+    backgroundColor: '#3A1807', 
     borderWidth: 1,
     borderColor: '#5A250A',
   },
@@ -641,16 +669,16 @@ const styles = StyleSheet.create({
     borderColor: '#3A1807',
   },
   routeBtnBg: {
-    backgroundColor: '#2D2D30', // Dark grey
+    backgroundColor: '#2D2D30', 
   },
   playBtn: {
     width: 65,
     height: 65,
     borderRadius: 32.5,
-    backgroundColor: '#FF5500', // Bright Orange
+    backgroundColor: '#FF5500', 
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 15, // Play button sits slightly higher or just larger
+    marginBottom: 15, 
     shadowColor: '#FF5500',
     shadowOpacity: 0.4,
     shadowRadius: 10,
