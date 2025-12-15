@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import type { PipelineStage } from "mongoose";
 import User, { type IUser, type UserDocument } from "../models/User.js";
 import { buildUserSearchKeywords } from "../services/userService.js";
 import { uploadImageBuffer } from "../services/cloudinaryService.js";
@@ -194,5 +195,190 @@ export const deleteAccount = async (req: AuthenticatedRequest, res: Response): P
   } catch (error) {
     console.error("deleteAccount error:", error);
     return res.status(500).json({ message: "Failed to delete account" });
+  }
+};
+
+type StatsRangeKey = "today" | "week" | "month" | "year" | "all";
+
+interface RangeBounds {
+  start?: Date;
+  end?: Date;
+}
+
+const defaultRanges: StatsRangeKey[] = ["today", "week", "all"];
+
+const startOfDay = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const startOfWeek = (date: Date): Date => {
+  const result = startOfDay(date);
+  const day = result.getDay();
+  const diff = (day + 6) % 7; // ISO week starts on Monday
+  result.setDate(result.getDate() - diff);
+  return result;
+};
+
+const startOfMonth = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), 1);
+
+const startOfYear = (date: Date): Date => new Date(date.getFullYear(), 0, 1);
+
+const resolveRangeBounds = (range: StatsRangeKey, now: Date): RangeBounds => {
+  switch (range) {
+    case "today":
+      return { start: startOfDay(now) };
+    case "week":
+      return { start: startOfWeek(now) };
+    case "month":
+      return { start: startOfMonth(now) };
+    case "year":
+      return { start: startOfYear(now) };
+    case "all":
+    default:
+      return {};
+  }
+};
+
+const buildStatsFacet = (bounds: RangeBounds): PipelineStage[] => {
+  const stages: PipelineStage[] = [];
+  if (bounds.start || bounds.end) {
+    const timeMatch: Record<string, unknown> = {};
+    if (bounds.start) {
+      timeMatch.$gte = bounds.start;
+    }
+    if (bounds.end) {
+      timeMatch.$lte = bounds.end;
+    }
+    stages.push({ $match: { startTime: timeMatch } });
+  }
+
+  stages.push({
+    $group: {
+      _id: null,
+      activities: { $sum: 1 },
+      totalDistance: { $sum: { $ifNull: ["$totalDistance", 0] } },
+      totalCalories: { $sum: { $ifNull: ["$calories", 0] } },
+      totalDurationMs: {
+        $sum: {
+          $max: [
+            0,
+            {
+              $subtract: [
+                { $ifNull: ["$endTime", new Date(0)] },
+                { $ifNull: ["$startTime", new Date(0)] },
+              ],
+            },
+          ],
+        },
+      },
+    },
+  });
+
+  stages.push({
+    $project: {
+      _id: 0,
+      activities: 1,
+      totalDistance: { $ifNull: ["$totalDistance", 0] },
+      totalCalories: { $ifNull: ["$totalCalories", 0] },
+      totalDurationSeconds: {
+        $round: [
+          {
+            $divide: [
+              { $ifNull: ["$totalDurationMs", 0] },
+              1000,
+            ],
+          },
+          2,
+        ],
+      },
+    },
+  });
+
+  stages.push({
+    $addFields: {
+      avgSpeed: {
+        $cond: [
+          { $gt: ["$totalDurationSeconds", 0] },
+          {
+            $divide: [
+              "$totalDistance",
+              "$totalDurationSeconds",
+            ],
+          },
+          0,
+        ],
+      },
+      avgPaceSeconds: {
+        $cond: [
+          { $gt: ["$totalDistance", 0] },
+          {
+            $divide: [
+              "$totalDurationSeconds",
+              {
+                $divide: ["$totalDistance", 1000],
+              },
+            ],
+          },
+          0,
+        ],
+      },
+    },
+  });
+
+  return stages;
+};
+
+export const getActivityStats = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const now = new Date();
+    const rangesParam = typeof req.query.ranges === "string" ? req.query.ranges : undefined;
+    const requestedRanges = (rangesParam?.split(",") ?? defaultRanges).filter((entry): entry is StatsRangeKey => ["today", "week", "month", "year", "all"].includes(entry as StatsRangeKey));
+    const uniqueRanges = Array.from(new Set(requestedRanges.length > 0 ? requestedRanges : defaultRanges));
+
+    const facets: Record<string, PipelineStage[]> = {};
+    for (const range of uniqueRanges) {
+      facets[range] = buildStatsFacet(resolveRangeBounds(range, now));
+    }
+
+    const customStart = typeof req.query.from === "string" ? new Date(req.query.from) : undefined;
+    const customEnd = typeof req.query.to === "string" ? new Date(req.query.to) : undefined;
+    const customStartValid = customStart instanceof Date && !Number.isNaN(customStart.getTime()) ? customStart : undefined;
+    const customEndValid = customEnd instanceof Date && !Number.isNaN(customEnd.getTime()) ? customEnd : undefined;
+
+    if (customStartValid || customEndValid) {
+      facets.custom = buildStatsFacet({ start: customStartValid, end: customEndValid });
+    }
+
+    if (Object.keys(facets).length === 0) {
+      return res.json({ success: true, data: {} });
+    }
+
+    const pipeline: PipelineStage[] = [{ $match: { userId: req.user._id } }, { $facet: facets }];
+
+    const [raw] = await Activity.aggregate(pipeline);
+
+    const normalizeFacet = (key: string) => {
+      const entry = Array.isArray(raw?.[key]) && raw[key].length > 0 ? raw[key][0] : undefined;
+      return {
+        activities: entry?.activities ?? 0,
+        totalDistance: entry?.totalDistance ?? 0,
+        totalCalories: entry?.totalCalories ?? 0,
+        totalDurationSeconds: entry?.totalDurationSeconds ?? 0,
+        avgSpeed: entry?.avgSpeed ?? 0,
+        avgPaceSeconds: entry?.avgPaceSeconds ?? 0,
+      };
+    };
+
+    const data: Record<string, ReturnType<typeof normalizeFacet>> = {};
+    for (const key of Object.keys(facets)) {
+      data[key] = normalizeFacet(key);
+    }
+
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error("getActivityStats error:", error);
+    return res.status(500).json({ message: "Failed to aggregate activity stats" });
   }
 };

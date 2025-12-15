@@ -1,10 +1,8 @@
 // services/pedometerService.ts
 import { Pedometer } from "expo-sensors";
 import { useEffect, useRef, useState } from "react";
-import statsService from "./statsService";
 import { authService } from "./AuthService";
 
-const STRIDE_M = 0.78; // average stride length in meters
 const SYNC_STEP_THRESHOLD = 25;
 const SYNC_INTERVAL_MS = 60_000;
 
@@ -54,39 +52,16 @@ export function usePedometer(): PedometerHook {
         return;
       }
 
-      const stepsDelta = pendingStepsRef.current;
-      if (stepsDelta <= 0) {
-        pendingStepsRef.current = 0;
-        clearSyncTimeout();
-        return;
-      }
-
-      const distanceDelta = stepsDelta * STRIDE_M;
       pendingStepsRef.current = 0;
       clearSyncTimeout();
-
-      try {
-        await statsService.syncStats({
-          steps: Math.round(stepsDelta),
-          distance: Math.round(distanceDelta * 100) / 100,
-        });
-        lastSyncRef.current = Date.now();
-      } catch (err) {
-        if (!(err instanceof Error && err.message === "Not authenticated")) {
-          console.log("stats sync failed:", err);
-          pendingStepsRef.current += stepsDelta;
-          scheduleSync();
-        } else {
-          pendingStepsRef.current = 0;
-        }
-      }
+      lastSyncRef.current = Date.now();
     };
 
     const scheduleSync = () => {
       if (syncTimeoutRef.current || cancelled) return;
       if (!authService.getToken()) return;
       syncTimeoutRef.current = setTimeout(() => {
-        flushPending().catch((err) => console.log("delayed stats sync failed:", err));
+        flushPending().catch((err) => console.log("delayed stats flush failed:", err));
       }, SYNC_INTERVAL_MS);
     };
 
@@ -140,7 +115,7 @@ export function usePedometer(): PedometerHook {
         const now = new Date();
         const dayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
         if (currentDayRef.current && currentDayRef.current !== dayKey) {
-          flushPending(true).catch((err) => console.log("midnight stats sync failed:", err));
+          flushPending(true).catch((err) => console.log("midnight stats flush failed:", err));
           currentDayRef.current = dayKey;
           pendingStepsRef.current = 0;
           baselineRef.current = reading.steps;
@@ -166,7 +141,7 @@ export function usePedometer(): PedometerHook {
               pendingStepsRef.current >= SYNC_STEP_THRESHOLD ||
               timeSinceLastSync >= SYNC_INTERVAL_MS
             ) {
-              flushPending().catch((err) => console.log("stats sync failed:", err));
+              flushPending().catch((err) => console.log("stats flush failed:", err));
             } else {
               scheduleSync();
             }
@@ -181,7 +156,7 @@ export function usePedometer(): PedometerHook {
       cancelled = true;
       subscription && subscription.remove();
       clearSyncTimeout();
-      flushPending(true).catch((err) => console.log("cleanup stats sync failed:", err));
+      flushPending(true).catch((err) => console.log("cleanup stats flush failed:", err));
     };
   }, []);
 

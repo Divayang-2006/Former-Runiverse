@@ -1,10 +1,7 @@
-import axios from 'axios';
 import { JournalPoint } from './RouteJournal';
-import { useStore } from '@/store/useStore'; // Assuming this holds your auth token
-
-// --- API CONFIGURATION ---
-// Replace with your actual backend URL or env variable
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://YOUR_IP_ADDRESS:3000/api';
+import { useStore } from '@/store/useStore';
+import { authService } from '@/services/AuthService';
+import { api } from '@/services/api';
 
 export interface ActivityUploadPayload {
   startTime: number;
@@ -12,7 +9,91 @@ export interface ActivityUploadPayload {
   distanceMeters: number;
   durationSeconds: number;
   route: JournalPoint[];
+  activityType?: string;
 }
+
+const MAX_STREAM_POINTS = 1500;
+const MIN_STREAM_INTERVAL_MS = 1000;
+
+type SerializedPoint = {
+  lat: number;
+  lng: number;
+  ts: string;
+  spd?: number;
+  acc?: number;
+};
+
+const isValidCoordinate = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+const toISOStringSafe = (value: number): string => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date(0).toISOString() : date.toISOString();
+};
+
+const roundCoordinate = (value: number, precision = 6): number => Number(value.toFixed(precision));
+
+const normalizeRoute = (route: JournalPoint[]): SerializedPoint[] => {
+  if (!Array.isArray(route) || route.length === 0) {
+    return [];
+  }
+
+  const normalized: SerializedPoint[] = [];
+  let lastTimestamp = -Infinity;
+
+  for (const point of route) {
+    if (!point || !isValidCoordinate(point.latitude) || !isValidCoordinate(point.longitude)) {
+      continue;
+    }
+
+    const timestamp = typeof point.timestamp === 'number' ? point.timestamp : Number(point.timestamp);
+    if (!Number.isFinite(timestamp)) {
+      continue;
+    }
+
+    if (timestamp - lastTimestamp < MIN_STREAM_INTERVAL_MS && normalized.length > 0) {
+      continue;
+    }
+
+    lastTimestamp = timestamp;
+    normalized.push({
+      lat: roundCoordinate(point.latitude),
+      lng: roundCoordinate(point.longitude),
+      ts: toISOStringSafe(timestamp),
+      spd: isValidCoordinate(point.speed) ? Number(point.speed.toFixed(2)) : undefined,
+      acc: isValidCoordinate(point.accuracy) ? Number(point.accuracy.toFixed(1)) : undefined,
+    });
+  }
+
+  if (normalized.length > MAX_STREAM_POINTS) {
+    const stride = Math.ceil(normalized.length / MAX_STREAM_POINTS);
+    const downsampled: SerializedPoint[] = normalized.filter((_, index) => index % stride === 0);
+
+    const lastPoint = normalized[normalized.length - 1];
+    if (downsampled[downsampled.length - 1]?.ts !== lastPoint.ts) {
+      downsampled.push(lastPoint);
+    }
+
+    return downsampled;
+  }
+
+  return normalized;
+};
+
+const resolveActivityType = (provided: string | undefined, avgSpeed: number): string => {
+  if (typeof provided === 'string' && provided.trim().length > 0) {
+    return provided.trim().toUpperCase();
+  }
+
+  if (avgSpeed >= 5) {
+    return 'RUN';
+  }
+
+  if (avgSpeed >= 3) {
+    return 'JOG';
+  }
+
+  return 'WALK';
+};
 
 export class ActivityUploadService {
   /**
@@ -20,77 +101,71 @@ export class ActivityUploadService {
    * @param payload The raw data from ActivityEngine.stopActivity()
    */
   static async upload(payload: ActivityUploadPayload) {
-    const user = useStore.getState().user;
-    const token = useStore.getState().token; // Or however you access your JWT
+    await authService.hydrate();
+
+    const state = useStore.getState();
+    const user = state.user;
+    const token = authService.getToken() ?? user?.token ?? null;
 
     if (!user || !token) {
       throw new Error('UPLOAD_FAILED_NO_AUTH');
     }
 
     // 1. Prepare Data
-    const avgSpeed = payload.distanceMeters / payload.durationSeconds || 0;
-    
+    const sanitizedDuration = Math.max(1, Math.round(payload.durationSeconds));
+    const sanitizedDistance = Math.max(0, Math.round(payload.distanceMeters));
+    const avgSpeed = sanitizedDistance / sanitizedDuration;
+
     // Estimate Calories (Simple METs calculation)
-    // Running ~8 METs, Walking ~3.5 METs. 
-    // Formula: METs * Weight(kg) * Time(hours)
-    // Defaulting to 70kg if user weight not found.
-    const weight = user.weight || 70; 
-    const mets = avgSpeed > 2.5 ? 9.8 : 3.5; // Threshold: 2.5 m/s (9km/h) = running
-    const hours = payload.durationSeconds / 3600;
-    const calories = Math.round(mets * weight * hours);
+    // Running ~9.8 METs, Walking ~3.5 METs.
+    const weight = typeof (user as any)?.weight === 'number' && Number.isFinite((user as any).weight)
+      ? (user as any).weight
+      : 70;
+    const mets = avgSpeed > 2.5 ? 9.8 : 3.5;
+    const hours = sanitizedDuration / 3600;
+    const calories = Math.max(0, Math.round(mets * weight * hours));
+
+    const streamPoints = normalizeRoute(payload.route);
+    const stream = streamPoints.length > 1 ? { gps: { points: streamPoints } } : undefined;
+
+    const activityType = resolveActivityType(payload.activityType, avgSpeed);
 
     // 2. Format Body for Backend
     // Backend expects: CreateActivityBody
     const body = {
-      startTime: new Date(payload.startTime).toISOString(),
-      endTime: new Date(payload.endTime).toISOString(),
-      totalDistance: Math.round(payload.distanceMeters),
-      calories: calories,
-      avgSpeed: parseFloat(avgSpeed.toFixed(2)),
-      activityType: avgSpeed > 2.0 ? 'RUN' : 'WALK', // Simple heuristic
-      loopDetected: false, // You mentioned this is pending logic
-      
-      // The "Stream" object from your controller
-      stream: {
-        gps: {
-          points: payload.route.map(p => ({
-            lat: p.latitude,
-            lng: p.longitude,
-            ts: new Date(p.timestamp).toISOString(),
-            spd: p.speed,
-            acc: p.accuracy
-          }))
-        },
-        // Future extensions:
-        heartRate: null,
-        steps: null,
-        pace: null, 
-      }
+      startTime: toISOStringSafe(payload.startTime),
+      endTime: toISOStringSafe(payload.endTime),
+      totalDistance: sanitizedDistance,
+      calories,
+      avgSpeed: Number.isFinite(avgSpeed) ? Number(avgSpeed.toFixed(2)) : 0,
+      activityType,
+      durationSeconds: sanitizedDuration,
+      loopDetected: false,
+      stream,
     };
 
     console.log('[UploadService] Uploading payload...', { 
-      points: payload.route.length, 
-      distance: body.totalDistance 
+      streamPoints: streamPoints.length,
+      distance: body.totalDistance,
+      activityType,
     });
 
     // 3. Network Request
     try {
-      const response = await axios.post(`${API_URL}/activities`, body, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 15000, // 15s timeout
-      });
+      const response = await api.post<{ success?: boolean; data?: unknown; message?: string }>('/api/activities', body, token);
 
-      if (response.status === 201 || response.status === 200) {
-        console.log('[UploadService] Success:', response.data);
-        return response.data;
-      } else {
-        throw new Error(`Server returned ${response.status}`);
+      if (response && typeof response === 'object') {
+        const success = (response as { success?: boolean }).success;
+        if (success !== false) {
+          console.log('[UploadService] Success:', (response as { data?: unknown }).data ?? response);
+          return response;
+        }
+        throw new Error((response as { message?: string }).message || 'Activity upload failed');
       }
+
+      return response;
     } catch (error: any) {
-      console.error('[UploadService] API Error:', error.response?.data || error.message);
+      console.error('[UploadService] API Error:', error?.message || error);
       // We explicitly throw so the UI can catch it and "Save to Local for retry"
       throw error;
     }

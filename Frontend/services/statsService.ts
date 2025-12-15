@@ -1,81 +1,105 @@
 import { api } from "./api";
 import { authService } from "./AuthService";
-import { useStore } from "@/store/useStore";
-import { estimateCaloriesFromSteps } from "@/utils/fitness";
 
-interface SyncStatsPayload {
-  steps?: number;
-  distance?: number;
-  calories?: number;
+export interface ActivityStatsSummary {
+  activities: number;
+  totalDistance: number;
+  totalCalories: number;
+  totalDurationSeconds: number;
+  avgSpeed: number;
+  avgPaceSeconds: number;
 }
 
-interface SyncStatsResponse {
-  msg: string;
-  user: {
-    id: string;
-    steps: number;
-    distance: number;
-    calories?: number;
-    lifetimeSteps?: number;
-    lifetimeDistance?: number;
-    totalCalories?: number;
-    territories?: number;
-  };
+interface ActivityStatsResponse {
+  success: boolean;
+  message?: string;
+  data?: Record<string, ActivityStatsSummary>;
 }
+
+const DEFAULT_RANGES = ["today", "week", "all"] as const;
+
+export type StatsRange = typeof DEFAULT_RANGES[number] | "month" | "year" | "custom";
+
+const encodeDate = (value: Date): string => value.toISOString();
+
+const DEFAULT_CACHE_TTL_MS = 60_000;
+
+const buildCacheKey = (ranges: StatsRange[], from?: Date, to?: Date): string => {
+  const normalizedRanges = [...new Set(ranges)].sort().join("|");
+  const fromKey = from instanceof Date && !Number.isNaN(from.getTime()) ? encodeDate(from) : "";
+  const toKey = to instanceof Date && !Number.isNaN(to.getTime()) ? encodeDate(to) : "";
+  return `${normalizedRanges}::${fromKey}::${toKey}`;
+};
+
+const statsCache = new Map<string, { data: Record<string, ActivityStatsSummary>; expiry: number }>();
+const inflight = new Map<string, Promise<Record<string, ActivityStatsSummary>>>();
 
 export const statsService = {
-  async syncStats(payload: SyncStatsPayload): Promise<SyncStatsResponse> {
+  async fetchActivityStats(options?: {
+    ranges?: StatsRange[];
+    from?: Date;
+    to?: Date;
+    forceRefresh?: boolean;
+    cacheTtlMs?: number;
+  }): Promise<Record<string, ActivityStatsSummary>> {
+    await authService.hydrate();
     const token = authService.getToken();
     if (!token) {
       throw new Error("Not authenticated");
     }
 
-    const body: SyncStatsPayload = {};
-    const stepsProvided = typeof payload.steps === "number" && payload.steps > 0;
-    const distanceProvided = typeof payload.distance === "number" && payload.distance > 0;
-    const caloriesProvided = typeof payload.calories === "number" && payload.calories > 0;
+    const ranges = options?.ranges && options.ranges.length > 0 ? options.ranges : DEFAULT_RANGES;
+    const cacheKey = buildCacheKey(ranges, options?.from, options?.to);
+    const ttl = typeof options?.cacheTtlMs === "number" && options.cacheTtlMs > 0 ? options.cacheTtlMs : DEFAULT_CACHE_TTL_MS;
 
-    if (stepsProvided) {
-      body.steps = Math.round(payload.steps!);
+    if (options?.forceRefresh) {
+      statsCache.delete(cacheKey);
+      inflight.delete(cacheKey);
     }
 
-    if (distanceProvided) {
-      body.distance = Math.round(payload.distance! * 100) / 100;
+    if (!options?.forceRefresh) {
+      const cached = statsCache.get(cacheKey);
+      if (cached && cached.expiry > Date.now()) {
+        return cached.data;
+      }
+
+      const pending = inflight.get(cacheKey);
+      if (pending) {
+        return pending;
+      }
     }
 
-    if (!caloriesProvided && stepsProvided) {
-      body.calories = Math.round(estimateCaloriesFromSteps(payload.steps!));
-    } else if (caloriesProvided) {
-      body.calories = Math.round(payload.calories!);
+    const params = new URLSearchParams();
+    params.set("ranges", Array.from(new Set(ranges)).join(","));
+
+    if (options?.from instanceof Date && !Number.isNaN(options.from.getTime())) {
+      params.set("from", encodeDate(options.from));
     }
 
-    if (!body.steps && !body.distance && !body.calories) {
-      return {
-        msg: "Nothing to sync",
-        user: {
-          id: "",
-          steps: 0,
-          distance: 0,
-          calories: 0,
-        },
-      };
+    if (options?.to instanceof Date && !Number.isNaN(options.to.getTime())) {
+      params.set("to", encodeDate(options.to));
     }
 
-    const response = await api.put<SyncStatsResponse>("/api/users/me/sync-stats", body, token);
+    const query = params.toString();
+    const path = `/api/users/me/activity-stats${query ? `?${query}` : ""}`;
 
-    const updateUser = useStore.getState().updateUser;
-    if (typeof updateUser === "function") {
-      updateUser({
-        steps: response.user.steps,
-        distance: response.user.distance,
-        calories: response.user.calories,
-        lifetimeSteps: response.user.lifetimeSteps,
-        lifetimeDistance: response.user.lifetimeDistance,
-        totalCalories: response.user.totalCalories,
-      } as any);
-    }
+    const request = api
+      .get<ActivityStatsResponse>(path, token)
+      .then((response) => {
+        if (!response || response.success === false) {
+          throw new Error(response?.message || "Failed to fetch activity stats");
+        }
 
-    return response;
+        const data = response.data ?? {};
+        statsCache.set(cacheKey, { data, expiry: Date.now() + ttl });
+        return data;
+      })
+      .finally(() => {
+        inflight.delete(cacheKey);
+      });
+
+    inflight.set(cacheKey, request);
+    return request;
   },
 };
 

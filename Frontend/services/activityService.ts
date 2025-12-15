@@ -1,5 +1,6 @@
 import { api } from "./api";
 import { authService } from "./AuthService";
+import statsService, { type StatsRange, type ActivityStatsSummary } from "./statsService";
 import { useStore } from "@/store/useStore";
 import type { Activity } from "@/store/types";
 
@@ -84,8 +85,51 @@ const buildActivitiesPath = (userId: string, limit?: number, includeStreams?: bo
   return `/api/users/${encodeURIComponent(userId)}/activities${query ? `?${query}` : ""}`;
 };
 
+const CACHE_TTL_MS = 60_000;
+
+const buildCacheKey = (userId: string, limit?: number, includeStreams?: boolean): string =>
+  `${userId}::${limit ?? ""}::${includeStreams ? "streams" : "base"}`;
+
+const activityCache = new Map<string, { data: Activity[]; expiry: number }>();
+const pendingRequests = new Map<string, Promise<Activity[]>>();
+
+type StatsOptions = {
+  ranges?: StatsRange[];
+  from?: Date;
+  to?: Date;
+  forceRefresh?: boolean;
+  cacheTtlMs?: number;
+  onResolved?: (stats: Record<string, ActivityStatsSummary>) => void;
+};
+
+const fetchStatsIfNeeded = async (options?: StatsOptions): Promise<Record<string, ActivityStatsSummary> | null> => {
+  if (!options) {
+    return null;
+  }
+
+  try {
+    const { onResolved, ...query } = options;
+    const stats = await statsService.fetchActivityStats(query);
+    if (typeof onResolved === "function") {
+      onResolved(stats);
+    }
+    return stats;
+  } catch (error) {
+    console.warn("[activityService] stats fetch failed", error);
+    return null;
+  }
+};
+
+interface FetchActivitiesOptions {
+  limit?: number;
+  includeStreams?: boolean;
+  userId?: string;
+  forceRefresh?: boolean;
+  stats?: StatsOptions;
+}
+
 export const activityService = {
-  async fetchActivities(options?: { limit?: number; includeStreams?: boolean; userId?: string }): Promise<Activity[]> {
+  async fetchActivities(options?: FetchActivitiesOptions): Promise<Activity[]> {
     await authService.hydrate();
     const token = authService.getToken();
     if (!token) {
@@ -98,16 +142,52 @@ export const activityService = {
       throw new Error("Missing user id");
     }
 
-    const path = buildActivitiesPath(targetUserId, options?.limit, options?.includeStreams);
-    const response = await api.get<ActivitiesResponse>(path, token);
+    const cacheKey = buildCacheKey(targetUserId, options?.limit, options?.includeStreams);
+    const now = Date.now();
 
-    if (!response || !response.success || !Array.isArray(response.data)) {
-      throw new Error(response?.message ?? "Failed to fetch activities");
+    if (!options?.forceRefresh) {
+      const cached = activityCache.get(cacheKey);
+      if (cached && cached.expiry > now) {
+        if (state.activities.length === 0) {
+          state.setActivities(cached.data);
+        }
+        await fetchStatsIfNeeded(options?.stats);
+        return cached.data;
+      }
+
+      const pending = pendingRequests.get(cacheKey);
+      if (pending) {
+        const activities = await pending;
+        await fetchStatsIfNeeded(options?.stats);
+        return activities;
+      }
+    } else {
+      activityCache.delete(cacheKey);
+      pendingRequests.delete(cacheKey);
     }
 
-    const mapped = response.data.map(mapActivity);
-    state.setActivities(mapped);
-    return mapped;
+    const path = buildActivitiesPath(targetUserId, options?.limit, options?.includeStreams);
+
+    const request = api
+      .get<ActivitiesResponse>(path, token)
+      .then((response) => {
+        if (!response || !response.success || !Array.isArray(response.data)) {
+          throw new Error(response?.message ?? "Failed to fetch activities");
+        }
+
+        const mapped = response.data.map(mapActivity);
+        activityCache.set(cacheKey, { data: mapped, expiry: Date.now() + CACHE_TTL_MS });
+        state.setActivities(mapped);
+        return mapped;
+      })
+      .finally(() => {
+        pendingRequests.delete(cacheKey);
+      });
+
+    pendingRequests.set(cacheKey, request);
+
+    const [activities] = await Promise.all([request, fetchStatsIfNeeded(options?.stats)]);
+    return activities;
   },
 
   getCachedActivities(): Activity[] {
