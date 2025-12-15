@@ -166,3 +166,15 @@ export const loginUser = async (
     return res.status(500).json({ success: false, message: "Login failed" });
   }
 };
+
+export const logoutUser = async (
+  _req: Request,
+  res: Response<{ success: boolean; message: string }>
+): Promise<Response<{ success: boolean; message: string }>> => {
+  try {
+    return res.json({ success: true, message: "Logged out" });
+  } catch (error) {
+    console.error("Logout error:", error);
+    return res.status(500).json({ success: false, message: "Logout failed" });
+  }
+};

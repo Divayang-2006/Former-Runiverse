@@ -95,6 +95,21 @@ export const profileService = {
          return { success: false, message: e.message };
       }
    },
+
+   async deleteAccount(): Promise<{ success: boolean; message: string }> {
+      try {
+         const token = authService.getToken();
+         if (!token) throw new Error("Not authenticated");
+
+         const resp = await api.delete<any>("/api/users/me", token);
+         return {
+            success: true,
+            message: resp?.message || "Account deleted",
+         };
+      } catch (e: any) {
+         return { success: false, message: e.message || "Failed to delete account" };
+      }
+   },
 };
 
 export default profileService;
