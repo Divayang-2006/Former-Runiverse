@@ -69,6 +69,12 @@ const LoginScreen = () => {
           setUser(normalizedUser as any);
         }
 
+        try {
+          await activityService.fetchActivities({ limit: 50 });
+        } catch (activityError) {
+          console.warn('Activity prefetch failed:', activityError);
+        }
+
         Alert.alert('✅ Success', result.message || 'Logged in successfully');
         router.replace('/(tabs)');
       } else {
