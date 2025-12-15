@@ -134,24 +134,27 @@ import Animated, { FadeInDown, Layout } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { useStore } from "@/store/useStore";
 import Toast from "react-native-toast-message";
+import { profileService } from "@/services/profileService";
+import { authService } from "@/services/AuthService";
 
 export default function AccountSettings() {
   const { theme, colors, isDark } = useTheme();
   const router = useRouter();
   const user = useStore((s) => s.user);
   const updateUser = useStore((s) => s.updateUser);
+  const resetAuthState = useStore((s) => s.resetAuthState);
+  const setUser = useStore((s) => s.setUser);
   const isDarkMode = isDark;
 
   const [name, setName] = useState(user?.username || "");
   const [email, setEmail] = useState(user?.email || "");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const bgClass = isDarkMode ? "bg-background-dark" : "bg-gray-100";
   const textClass = isDarkMode ? "text-text-primary" : "text-gray-900";
   const cardBgClass = isDarkMode ? "bg-card-dark" : "bg-white";
-  const inputBg = isDarkMode ? "bg-gray-800" : "bg-gray-100";
-  const inputText = isDarkMode ? "text-white" : "text-gray-900";
 
   const handleUpdate = async () => {
     setLoading(true);
@@ -183,12 +186,44 @@ export default function AccountSettings() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            Toast.show({
-              type: "info",
-              text1: "Account Deletion",
-              text2: "This feature will be implemented soon.",
-            });
+          onPress: async () => {
+            if (deleting) {
+              return;
+            }
+
+            try {
+              setDeleting(true);
+              const result = await profileService.deleteAccount();
+
+              if (!result.success) {
+                Toast.show({
+                  type: "error",
+                  text1: "Deletion Failed",
+                  text2: result.message || "Unable to delete account",
+                });
+                return;
+              }
+
+              await authService.logout();
+              resetAuthState();
+              setUser(null);
+
+              Toast.show({
+                type: "success",
+                text1: "Account Deleted",
+                text2: "We're sorry to see you go.",
+              });
+
+              router.replace("/login");
+            } catch (error: any) {
+              Toast.show({
+                type: "error",
+                text1: "Deletion Failed",
+                text2: error?.message || "Unable to delete account",
+              });
+            } finally {
+              setDeleting(false);
+            }
           },
         },
       ]
@@ -342,7 +377,11 @@ export default function AccountSettings() {
               </Text>
 
               <Pressable
-                onPress={handleDeleteAccount}
+                onPress={() => {
+                  if (!deleting) {
+                    handleDeleteAccount();
+                  }
+                }}
                 className="py-4 rounded-2xl items-center active:scale-95"
                 style={({ pressed }) => [{
                   opacity: pressed ? 0.8 : 1,
@@ -354,7 +393,9 @@ export default function AccountSettings() {
                   elevation: 8,
                 }]}
               >
-                <Text className="text-white font-bold text-[15px] tracking-wide">Delete Account</Text>
+                <Text className="text-white font-bold text-[15px] tracking-wide">
+                  {deleting ? "Deleting..." : "Delete Account"}
+                </Text>
               </Pressable>
             </Animated.View>
           </View>

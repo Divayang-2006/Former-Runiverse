@@ -1,14 +1,45 @@
-import React from 'react';
-import { View, Platform } from 'react-native';
+import React, { useEffect } from 'react';
+import { View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '../../context/ThemeContext';
 import { LayoutDashboard, Map, Trophy, Activity, User } from "lucide-react-native";
+import { useRouter } from 'expo-router';
+import { authService } from '@/services/AuthService';
+import { useStore } from '@/store/useStore';
 
 export default function TabLayout() {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const user = useStore((state) => state.user);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const enforceAuth = async () => {
+      try {
+        await authService.hydrate();
+      } catch {
+        // ignore hydration errors; fallback logic handles redirect
+      }
+
+      const token = authService.getToken();
+      const currentUser = useStore.getState().user;
+
+      if ((!token || !currentUser) && !cancelled) {
+        useStore.getState().resetAuthState();
+        router.replace('/login');
+      }
+    };
+
+    enforceAuth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, router]);
 
   // Floating dock colors
   const activeTint = '#10B981'; // emerald-500

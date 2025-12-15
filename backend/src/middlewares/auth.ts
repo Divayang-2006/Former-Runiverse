@@ -1,35 +1,69 @@
 import type { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
 import User, { UserDocument } from "../models/User.js";
 import { verifyAccessToken } from "../services/tokenService.js";
-
-interface AuthenticatedRequest extends Request {
-  user?: UserDocument;
-}
 
 interface JwtPayload {
   id: string;
 }
 
-export const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<Response | void> => {
+type AuthenticatedRequest = Request & {
+  user?: UserDocument;
+};
+
+const { TokenExpiredError } = jwt;
+
+const respondUnauthorized = (res: Response, message: string): Response => {
+  res.setHeader("WWW-Authenticate", "Bearer realm=\"Runiverse\"");
+  return res.status(401).json({ success: false, message });
+};
+
+const extractToken = (req: AuthenticatedRequest): string | null => {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ success: false, message: "No token provided" });
+  if (typeof authHeader !== "string" || authHeader.length === 0) {
+    return null;
   }
 
-  const token = authHeader.split(" ")[1];
+  const [scheme, rawToken] = authHeader.split(" ");
+  if (!scheme || scheme.toLowerCase() !== "bearer") {
+    return null;
+  }
+
+  if (!rawToken) {
+    return null;
+  }
+
+  const token = rawToken.trim();
+  if (!token || token === "null" || token === "undefined") {
+    return null;
+  }
+
+  return token;
+};
+
+export const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<Response | void> => {
+  const token = extractToken(req);
+  if (!token) {
+    return respondUnauthorized(res, "No token provided");
+  }
 
   try {
     const decoded = verifyAccessToken<JwtPayload>(token);
-    const user = await User.findById(decoded.id).select("-password");
+    if (!decoded?.id) {
+      return respondUnauthorized(res, "Token payload is not valid");
+    }
 
+    const user = await User.findById(decoded.id).select("-password");
     if (!user) {
-      return res.status(401).json({ success: false, message: "User not found" });
+      return respondUnauthorized(res, "User not found");
     }
 
     req.user = user;
     return next();
   } catch (err) {
-    console.error("Auth error:", err);
-    return res.status(401).json({ success: false, message: "Token is not valid" });
+    const error = err instanceof Error ? err : new Error(String(err));
+    const message = error instanceof TokenExpiredError ? "Token has expired" : "Token is not valid";
+    console.error("Auth error:", error.message);
+    return respondUnauthorized(res, message);
   }
 };
