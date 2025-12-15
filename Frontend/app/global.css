@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  .bg-background-dark {
+    background-color: #161622;
+  }
+  .bg-card-dark {
+    background-color: #2C2C2E;
+  }
+  .text-text-primary {
+    color: #FFFFFF;
+  }
+  .text-text-secondary {
+    color: #A9A9A9;
+  }
+  .border-primary-green {
+    border-color: #00C853;
+  }
+  .bg-primary-green {
+    background-color: #00C853;
+  }
+}

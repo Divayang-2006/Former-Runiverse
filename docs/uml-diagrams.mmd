@@ -1,0 +1,230 @@
+%% Runiverse UML Diagrams
+%% Render with: npx @mermaid-js/mermaid-cli -i docs/uml-diagrams.mmd -o docs/uml-diagrams.png
+
+---
+title: Runiverse Backend Domain Model
+theme: forest
+---
+classDiagram
+    class User {
+        +ObjectId _id
+        +String username
+        +String email
+        +String password
+        +String lastName
+        +String mobileNumber
+        +Number steps
+        +Number distance
+        +Number territories
+        +Number streak
+        +Number multiplier
+        +String oauthProvider
+        +String oauthId
+        +String displayName
+        +String avatar
+        +GeoPoint location
+        +Date createdAt
+        +Date updatedAt
+        +updateSteps(newSteps)
+        +updateDistance(newDistance)
+        +addTerritory()
+        +updateStreak()
+        +resetStreak()
+        +updateLocation(lng, lat)
+    }
+    class Badge {
+        +ObjectId _id
+        +String name
+        +String description
+        +String icon
+        +Date createdAt
+        +Date updatedAt
+    }
+    class Challenge {
+        +ObjectId _id
+        +String title
+        +String description
+        +Number goal
+        +String type
+        +Boolean isDaily
+        +Boolean isWeekly
+        +Date startDate
+        +Date endDate
+        +ChallengeProgress[] progress
+        +Date createdAt
+        +Date updatedAt
+    }
+    class ChallengeProgress {
+        +ObjectId user
+        +Number currentProgress
+        +Boolean completed
+    }
+    class Territory {
+        +ObjectId _id
+        +String name
+        +ObjectId owner
+        +GeoPolygon location
+        +Date claimedOn
+        +Date createdAt
+        +Date updatedAt
+    }
+    class Group {
+        +ObjectId _id
+        +String name
+        +String color
+        +ObjectId[] members
+        +Date createdAt
+        +Date updatedAt
+    }
+    class Notification {
+        +ObjectId _id
+        +ObjectId user
+        +String message
+        +Boolean read
+        +Date createdAt
+        +Date updatedAt
+    }
+
+    User "0..*" -- "*" Badge : "earns"
+    User "0..*" -- "*" Challenge : "participates"
+    User "1" -- "*" ChallengeProgress : "tracked by"
+    Challenge "1" o-- "*" ChallengeProgress : "contains"
+    User "1" -- "*" Territory : "owns"
+    User "1" -- "*" Notification : "receives"
+    Group "1" -- "*" User : "members"
+
+---
+title: Runiverse Backend Request Flow
+theme: dark
+---
+flowchart LR
+    Client((Mobile / Expo App))
+    subgraph ExpressApp[Express Backend]
+        direction TB
+        Middleware[express.json / cookieParser / morgan / cors]
+        AuthRoutes[/authRoutes.js/]
+        UserRoutes[/userRoutes.js/]
+        ChallengeRoutes[/challengeRoutes.js/]
+        LeaderboardRoutes[/leaderboardRoutes.js/]
+        TerritoryRoutes[/territoryRoutes.js/]
+        AuthMiddleware[authMiddleware.js]
+        Controllers{{Controllers}}
+        Models[(Mongoose Models)]
+    end
+    Database[(MongoDB Atlas/local)]
+
+    Client -->|REST| Middleware
+    Middleware --> AuthRoutes
+    Middleware --> UserRoutes
+    Middleware --> ChallengeRoutes
+    Middleware --> LeaderboardRoutes
+    Middleware --> TerritoryRoutes
+
+    AuthRoutes --> Controllers
+    UserRoutes --> AuthMiddleware
+    AuthMiddleware --> Controllers
+    ChallengeRoutes --> AuthMiddleware
+    LeaderboardRoutes --> Controllers
+    TerritoryRoutes --> AuthMiddleware
+
+    Controllers --> Models
+    Models --> Database
+
+---
+title: Runiverse Frontend Architecture
+theme: default
+---
+classDiagram
+    direction LR
+    class ThemeProvider {
+        <<Context>>
+        -theme: "light"|"dark"
+        -toggleTheme()
+        +useTheme()
+    }
+
+    class useStore {
+        <<Zustand>>
+        +user: User
+        +group: Group
+        +stats: UserStats
+        +session: WalkSession
+        +challenges: Challenge[]
+        +badges: Badge[]
+        +grid: Record<string, GridCell>
+        +setUser(user)
+        +joinGroup(groupId)
+        +updateUser(partial)
+        +addWalkStats(session)
+        +startSession()
+        +stopSession()
+        +updateSession(updates)
+        +resetSession()
+        +applyStepDelta(delta)
+        +updateCellInfluence(cellId, groupId, influence)
+        +updateChallengeProgress(type, value)
+        +earnBadge(badgeId)
+    }
+
+    class AuthService {
+        -token: string
+        +getInstance()
+        +getToken()
+        +setToken(token)
+        +login(email, password)
+        +register(userData)
+        +googleLogin()
+        +handleGoogleCallback()
+        +logout()
+    }
+
+    class profileService {
+        +updateUserProfile(partial)
+        +fetchMe()
+    }
+
+    class api {
+        +baseURL: string
+        +get(path, token)
+        +post(path, body, token)
+        +put(path, body, token)
+        +delete(path, token)
+    }
+
+    class usePedometer {
+        <<Hook>>
+        +steps: number
+        +totalToday: number
+        +isAvailable: boolean
+        +resetBaseline()
+    }
+
+    class ExpoRouter {
+        <<Router>>
+        +app/index.tsx
+        +app/login.tsx
+        +app/register.tsx
+        +(tabs)/...
+        +settings screens
+    }
+
+    class ChallengeCard
+    class StatCard
+    class CustomInput
+    class ReanimatedSplashScreen
+
+    ThemeProvider --> ExpoRouter : provides theme
+    useStore --> ExpoRouter : state
+    useStore --> ChallengeCard
+    useStore --> StatCard
+    AuthService --> api
+    profileService --> api
+    profileService --> AuthService
+    ExpoRouter --> AuthService
+    ExpoRouter --> profileService
+    ExpoRouter --> usePedometer
+    ExpoRouter --> useStore
+    ChallengeCard --> useStore
+    StatCard --> useStore
+    CustomInput --> ExpoRouter
+    ReanimatedSplashScreen --> ThemeProvider

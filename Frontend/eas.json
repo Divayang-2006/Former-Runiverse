@@ -1,0 +1,43 @@
+{
+  "cli": {
+    "version": ">= 16.18.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "MAPBOX_API_KEY_1": "@MAPBOX_API_KEY_1",
+        "MAPBOX_API_KEY_2": "@MAPBOX_API_KEY_2",
+        "MAPBOX_DOWNLOAD_TOKEN": "@MAPBOX_DOWNLOAD_TOKEN",
+        "EXPO_PUBLIC_API_BASE_URL": "@EXPO_PUBLIC_API_BASE_URL"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "MAPBOX_DOWNLOAD_TOKEN": "@MAPBOX_DOWNLOAD_TOKEN",
+        "EXPO_PUBLIC_API_BASE_URL": "@EXPO_PUBLIC_API_BASE_URL"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "MAPBOX_DOWNLOAD_TOKEN": "@MAPBOX_DOWNLOAD_TOKEN",
+        "EXPO_PUBLIC_API_BASE_URL": "@EXPO_PUBLIC_API_BASE_URL"
+      }
+    },
+    "development-simulator": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "environment": "development"
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
