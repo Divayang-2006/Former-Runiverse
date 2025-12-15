@@ -19,7 +19,7 @@ export const ScreenWrapper = ({
   // Base padding logic to prevent overlaps
   const containerStyle = {
     paddingTop: unsafe ? 0 : insets.top*0.1,
-    paddingBottom: unsafe ? 0 : insets.bottom,
+    paddingBottom: insets.bottom + 25,
     paddingLeft: insets.left,
     paddingRight: insets.right,
   };

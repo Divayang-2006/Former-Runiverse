@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Alert, Switch, Text, Pressable, View } from "react-native";
+import React from "react";
+import { Alert, Text, Pressable, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { authService } from "@/services/AuthService";
@@ -13,10 +13,9 @@ export default function Logout() {
   const { theme } = useTheme();
   const router = useRouter();
   const setUser = useStore((s) => s.setUser);
+  const resetAuthState = useStore((s) => s.resetAuthState);
   const user = useStore((s) => s.user);
   const isDarkMode = theme === "dark";
-
-  const [rememberLogin, setRememberLogin] = useState(true);
 
   const bgClass = isDarkMode ? "bg-background-dark" : "bg-gray-100";
   const textClass = isDarkMode ? "text-text-primary" : "text-gray-900";
@@ -36,9 +35,13 @@ export default function Logout() {
           text: "Logout",
           style: "destructive",
           onPress: async () => {
-            await authService.logout();
-            setUser(null);
-            router.replace("/login");
+            try {
+              await authService.logout();
+            } finally {
+              resetAuthState();
+              setUser(null);
+              router.replace("/login");
+            }
           }
         }
       ]
@@ -55,65 +58,60 @@ export default function Logout() {
           <Text className={`text-3xl font-bold ${textClass} tracking-tight`}>Logout</Text>
         </View>
 
-        <Animated.View entering={FadeInDown.duration(600).delay(100)} className={`rounded-3xl p-6 mb-6 shadow-lg ${cardBgClass}`}>
-          <View className="flex-row items-center mb-6">
-            <View className="bg-blue-500/10 p-3 rounded-2xl mr-3">
-              <Ionicons name="person-circle" size={24} color="#3B82F6" />
-            </View>
-            <View className="flex-1">
-              <Text className={`text-lg font-bold ${textClass}`}>{user?.username || "User"}</Text>
-              <Text className={subtleText}>{user?.email || "user@runiverse.app"}</Text>
-            </View>
-          </View>
-
-          <View className="py-4 border-t border-gray-200 dark:border-gray-700">
-            <View className="flex-row justify-between items-center">
-              <View className="flex-1 mr-4">
-                <Text className={`text-base font-medium ${textClass}`}>Remember Login</Text>
-                <Text className={`text-sm mt-1 ${subtleText}`}>Stay signed in on this device</Text>
-              </View>
-              <Switch 
-                value={rememberLogin} 
-                onValueChange={setRememberLogin}
-                trackColor={{ false: "#767577", true: "#6A5ACD" }}
-                thumbColor={rememberLogin ? "#00C853" : "#f4f3f4"}
-              />
-            </View>
-          </View>
-        </Animated.View>
-
-        <Animated.View entering={FadeInDown.duration(600).delay(200)} className={`rounded-3xl p-6 shadow-lg ${cardBgClass}`}>
-          <View className="flex-row items-center mb-4">
-            <View className="bg-red-500/10 p-3 rounded-2xl mr-3">
-              <Ionicons name="log-out" size={24} color="#EF4444" />
-            </View>
-            <Text className={`text-xl font-bold ${textClass}`}>Sign Out</Text>
-          </View>
-
-          <Text className={`text-sm mb-6 ${subtleText}`}>
-            You can always sign back in anytime. Your data and progress will be saved.
-          </Text>
-
-          <Pressable
-            onPress={handleLogout}
-            className="active:scale-95"
-            style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}
+        <View style={{ gap: 24 }}>
+          <Animated.View
+            entering={FadeInDown.duration(600).delay(100)}
+            className={`rounded-3xl p-6 shadow-lg ${cardBgClass}`}
+            style={{ marginTop: 14 }}
           >
-            <LinearGradient
-              colors={['#EF4444', '#DC2626']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              className="py-4 rounded-xl items-center"
-            >
-              <View className="flex-row items-center">
-                <Ionicons name="log-out-outline" size={20} color="white" />
-                <Text className="text-white font-bold text-base tracking-wide ml-2">
-                  Logout
-                </Text>
+            <View className="flex-row items-center">
+              <View className="bg-blue-500/10 p-3 rounded-2xl mr-3">
+                <Ionicons name="person-circle" size={24} color="#3B82F6" />
               </View>
-            </LinearGradient>
-          </Pressable>
-        </Animated.View>
+              <View className="flex-1">
+                <Text className={`text-lg font-bold ${textClass}`}>{user?.username || "User"}</Text>
+                <Text className={subtleText}>{user?.email || "user@runiverse.app"}</Text>
+              </View>
+            </View>
+          </Animated.View>
+
+          <Animated.View
+            entering={FadeInDown.duration(600).delay(200)}
+            className={`rounded-3xl p-6 shadow-lg ${cardBgClass}`}
+            style={{ marginTop: 10 }}
+          >
+            <View className="flex-row items-center mb-4">
+              <View className="bg-red-500/10 p-3 rounded-2xl mr-3">
+                <Ionicons name="log-out" size={24} color="#EF4444" />
+              </View>
+              <Text className={`text-xl font-bold ${textClass}`}>Sign Out</Text>
+            </View>
+
+            <Text className={`text-sm mb-6 ${subtleText}`}>
+              You can always sign back in anytime. Your data and progress will be saved.
+            </Text>
+
+            <Pressable
+              onPress={handleLogout}
+              className="active:scale-95"
+              style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}
+            >
+              <LinearGradient
+                colors={['#EF4444', '#DC2626']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                className="py-4 rounded-xl items-center"
+              >
+                <View className="flex-row items-center">
+                  <Ionicons name="log-out-outline" size={20} color="white" />
+                  <Text className="text-white font-bold text-base tracking-wide ml-2">
+                    Logout
+                  </Text>
+                </View>
+              </LinearGradient>
+            </Pressable>
+          </Animated.View>
+        </View>
 
         <Animated.View entering={FadeInDown.duration(600).delay(300)} className="mt-8 items-center">
           <Text className={`text-xs ${subtleText} text-center`}>

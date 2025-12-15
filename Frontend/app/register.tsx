@@ -1,51 +1,54 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Pressable, Image, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Pressable, Image, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Link } from 'expo-router';
-import CustomInput from '../components/CustomInput';
 import { authService } from '../services/AuthService';
 import { useStore } from '@/store/useStore';
 import { profileService } from '@/services/profileService';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
+import { useTheme } from '../context/ThemeContext';
 
 export default function RegisterScreen() {
   const router = useRouter();
   const setUser = useStore((s) => s.setUser);
-  const user = useStore((s) => s.user);
   const insets = useSafeAreaInsets();
-  const [lastName, setLastName] = useState('');
+  const { theme } = useTheme();
+  const isDarkMode = theme === 'dark';
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Redirect if already logged in
-  useEffect(() => {
-    if (user) {
-      router.replace('/(tabs)');
-    }
-  }, [user, router]);
-
   const handleRegister = async () => {
-    if (!username || !email || !password) {
-      Alert.alert('Validation', 'Username, email & password are required');
+    const trimmedUsername = username.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (!trimmedUsername || !trimmedEmail || !password || !confirmPassword) {
+      Alert.alert('Validation', 'All fields are required');
+      return;
+    }
+
+    if (password.length < 8) {
+      Alert.alert('Validation', 'Password must be at least 8 characters long');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Validation', 'Passwords do not match');
       return;
     }
     try {
       setLoading(true);
       const payload = {
-        username,
-        email,
+        username: trimmedUsername,
+        email: trimmedEmail,
         password,
-        lastName,
-        mobileNumber: mobile,
-      } as any;
+      };
 
       const result = await authService.register(payload);
 
       if (result.success && result.token) {
-        // Auto-login after successful registration
         let normalizedUser: any = null;
 
         if (result.user) {
@@ -53,6 +56,15 @@ export default function RegisterScreen() {
             ...result.user,
             id: result.user._id || result.user.id,
             avatarUrl: result.user.avatar || result.user.avatarUrl || null,
+            token: result.token,
+          };
+        } else {
+          normalizedUser = {
+            id: undefined,
+            username: trimmedUsername,
+            email: trimmedEmail,
+            token: result.token,
+            avatarUrl: null,
           };
         }
 
@@ -68,13 +80,20 @@ export default function RegisterScreen() {
           console.warn('Profile fetch failed:', profileError);
         }
 
-        if (normalizedUser) {
-          setUser(normalizedUser as any);
+        if (!normalizedUser) {
+          normalizedUser = {
+            id: undefined,
+            username: trimmedUsername,
+            email: trimmedEmail,
+            token: result.token,
+            avatarUrl: null,
+          };
         }
 
-        Alert.alert('✅ Success', result.message || 'Account created successfully!', [
-          { text: 'Continue', onPress: () => router.replace('/(tabs)') },
-        ]);
+        setUser(normalizedUser as any);
+
+        Alert.alert('✅ Success', result.message || 'Account created successfully!');
+        router.replace('/(tabs)');
       } else {
         Alert.alert('❌ Error', result.message || 'Registration failed');
       }
@@ -85,9 +104,16 @@ export default function RegisterScreen() {
     }
   };
 
+  const bgClass = isDarkMode ? 'bg-background-dark' : 'bg-gray-100';
+  const textClass = isDarkMode ? 'text-text-primary' : 'text-gray-900';
+  const secondaryTextClass = isDarkMode ? 'text-text-secondary' : 'text-gray-500';
+  const inputBgClass = isDarkMode ? 'bg-card-dark' : 'bg-gray-200';
+  const inputTextClass = isDarkMode ? 'text-white' : 'text-black';
+  const placeholderColor = isDarkMode ? '#9CA3AF' : '#6B7280';
+
   return (
     <SafeAreaView
-      className="flex-1 bg-background-dark"
+      className={`flex-1 ${bgClass}`}
       style={{ paddingTop: Math.max(insets.top, 16), paddingBottom: Math.max(insets.bottom, 20) }}
     >
       <KeyboardAvoidingView
@@ -101,7 +127,7 @@ export default function RegisterScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Animated.View entering={FadeInUp.duration(600).delay(100)}>
-            <Text className="text-text-primary text-4xl font-bold mt-4 tracking-tight leading-tight">
+            <Text className={`text-4xl font-bold mt-4 tracking-tight leading-tight ${textClass}`}>
               Create Your{"\n"}New Account
             </Text>
           </Animated.View>
@@ -123,12 +149,54 @@ export default function RegisterScreen() {
           </Animated.View>
 
           {/* Form */}
-          <Animated.View entering={FadeInDown.duration(600).delay(300)} style={{ gap: 12 }}>
-            <CustomInput iconName="account-outline" placeholder="Enter Your Name" value={lastName} onChangeText={setLastName} />
-            <CustomInput iconName="account-circle-outline" placeholder="Enter Username" value={username} onChangeText={setUsername} />
-            <CustomInput iconName="email-outline" placeholder="Enter Email Id" value={email} onChangeText={setEmail} />
-            <CustomInput iconName="phone-outline" placeholder="Mobile Number" value={mobile} onChangeText={setMobile} />
-            <CustomInput iconName="lock-outline" placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
+          <Animated.View entering={FadeInDown.duration(600).delay(300)}>
+            <View style={{ rowGap: 16 }}>
+              <View className={`rounded-2xl ${inputBgClass} shadow-sm`}>
+                <TextInput
+                  placeholder="Username"
+                  placeholderTextColor={placeholderColor}
+                  className={`p-5 text-base ${inputTextClass}`}
+                  value={username}
+                  onChangeText={setUsername}
+                  autoCapitalize="none"
+                  editable={!loading}
+                />
+              </View>
+              <View className={`rounded-2xl ${inputBgClass} shadow-sm`}>
+                <TextInput
+                  placeholder="Email"
+                  placeholderTextColor={placeholderColor}
+                  className={`p-5 text-base ${inputTextClass}`}
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  editable={!loading}
+                />
+              </View>
+              <View className={`rounded-2xl ${inputBgClass} shadow-sm`}>
+                <TextInput
+                  placeholder="Password"
+                  placeholderTextColor={placeholderColor}
+                  className={`p-5 text-base ${inputTextClass}`}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  editable={!loading}
+                />
+              </View>
+              <View className={`rounded-2xl ${inputBgClass} shadow-sm`}>
+                <TextInput
+                  placeholder="Confirm Password"
+                  placeholderTextColor={placeholderColor}
+                  className={`p-5 text-base ${inputTextClass}`}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry
+                  editable={!loading}
+                />
+              </View>
+            </View>
           </Animated.View>
 
           <Animated.View entering={FadeInDown.duration(600).delay(400)}>
@@ -145,7 +213,7 @@ export default function RegisterScreen() {
               )}
             </Pressable>
             <View className="flex-row justify-center mt-6">
-              <Text className="text-text-secondary">Already have an account? </Text>
+              <Text className={`text-base ${secondaryTextClass}`}>Already have an account? </Text>
               <Link href="/login"><Text className="text-primary-green font-bold">Login</Text></Link>
             </View>
           </Animated.View>

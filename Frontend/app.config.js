@@ -41,6 +41,7 @@ export default ({ config }) => {
                'ACCESS_COARSE_LOCATION',
                'ACCESS_BACKGROUND_LOCATION',
                'FOREGROUND_SERVICE',
+               "FOREGROUND_SERVICE_LOCATION"
             ],
             foregroundService: {
                notificationTitle: 'Walking Route Active',
@@ -71,13 +72,14 @@ export default ({ config }) => {
                },
             ],
             [
-               'expo-location',
+               "expo-location",
                {
-                  locationAlwaysAndWhenInUsePermission:
-                     'Allow $(PRODUCT_NAME) to use your location.',
-                  locationWhenInUsePermission:
-                     'Allow $(PRODUCT_NAME) to use your location while the app is running.',
-               },
+                  "locationAlwaysAndWhenInUsePermission": "Allow Runiverse to track your territory while you explore.",
+                  "locationAlwaysPermission": "Allow Runiverse to track your territory even when the app is in the background.",
+                  "locationWhenInUsePermission": "Allow Runiverse to track your territory while you are using the app.",
+                  "isAndroidBackgroundLocationEnabled": true,
+                  "isAndroidForegroundServiceEnabled": true
+               }
             ],
          ],
          experiments: {

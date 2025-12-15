@@ -10,11 +10,42 @@ export interface User {
   territories?: number;
   displayName?: string | null;
   city?: string | null;
+  mobileNumber?: string | null;
+  bio?: string | null;
   lifetimeSteps?: number;
   lifetimeDistance?: number;
   streak?: number;
   multiplier?: number;
   token?: string;
+}
+
+export interface Activity {
+  id: string;
+  userId: string;
+  activityType: string;
+  totalDistance: number;
+  calories: number;
+  avgSpeed: number;
+  startTime: string;
+  endTime: string;
+  loopDetected: boolean;
+  hexesVisited: string[];
+  detectedRoutes: string[];
+  createdAt: string;
+  updatedAt: string;
+  elevationGain?: number;
+}
+
+export type MetricsKey = "weekly" | "yearToDate" | "allTime";
+
+export interface MetricsSummary {
+  start: string;
+  end: string;
+  days: number;
+  activities: number;
+  distanceMeters: number;
+  durationMinutes: number;
+  elevationGain: number;
 }
 
 export interface Group {

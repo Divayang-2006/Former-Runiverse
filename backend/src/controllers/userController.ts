@@ -1,187 +1,384 @@
 import type { Request, Response } from "express";
-import User, { UserDocument } from "../models/User.js";
+import type { PipelineStage } from "mongoose";
+import User, { type IUser, type UserDocument } from "../models/User.js";
+import { buildUserSearchKeywords } from "../services/userService.js";
+import { uploadImageBuffer } from "../services/cloudinaryService.js";
+import { env } from "../config/env.js";
+import Activity from "../models/Activity.js";
+import ActivityStream from "../models/ActivityStream.js";
+import FollowRelation from "../models/FollowRelation.js";
+import FriendRequest from "../models/FriendRequest.js";
+import ClubMember from "../models/ClubMember.js";
+import TerritoryCell from "../models/TerritoryCell.js";
 
 interface AuthenticatedRequest extends Request {
   user?: UserDocument;
+  file?: Express.Multer.File;
 }
 
 interface UpdateProfileBody {
-  username?: string;
-  displayName?: string;
+  displayName?: string | null;
   avatar?: string | null;
-  avatarUrl?: string | null;
-  location?: {
-    type?: string;
-    coordinates?: [number, number];
-  };
   bio?: string | null;
-  city?: string | null;
+  mobileNumber?: string | null;
 }
 
-interface SyncStatsBody {
-  steps?: number;
-  distance?: number;
-}
+const sanitizeUser = (user: UserDocument) => ({
+  id: user._id.toString(),
+  username: user.username,
+  email: user.email,
+  displayName: user.displayName ?? null,
+  avatar: user.avatar ?? null,
+  bio: user.bio ?? null,
+  mobileNumber: user.mobileNumber ?? null,
+  searchKeywords: user.searchKeywords,
+  createdAt: user.createdAt,
+  updatedAt: user.updatedAt,
+});
 
-export const getProfile = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
+export const getCurrentUser = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
   try {
-    const baseUser = req.user && req.user._id
-      ? req.user
-      : await User.findById(req.user?.id ?? req.user?._id).select("-password");
-
-    if (!baseUser) {
-      return res.status(404).json({ msg: "User not found" });
+    if (!req.user?._id) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
-    await baseUser.populate("badges");
-
-    baseUser.ensureDailyReset();
-
-    if (baseUser.isModified()) {
-      await baseUser.save();
+    const freshUser = await User.findById(req.user._id);
+    if (!freshUser) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    return res.json(baseUser);
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    console.error("getProfile error:", error);
-    return res.status(500).json({ msg: "Server error" });
+    return res.json({ success: true, data: sanitizeUser(freshUser) });
+  } catch (error) {
+    console.error("getCurrentUser error:", error);
+    return res.status(500).json({ message: "Failed to fetch profile" });
+  }
+};
+
+export const getUserById = async (req: Request<{ id: string }>, res: Response): Promise<Response> => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({ success: true, data: sanitizeUser(user) });
+  } catch (error) {
+    console.error("getUserById error:", error);
+    return res.status(500).json({ message: "Failed to fetch user" });
   }
 };
 
 export const updateProfile = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ msg: "Unauthorized" });
+    if (!req.user?._id) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
     const incoming = req.body as UpdateProfileBody;
-    const updates: Partial<UpdateProfileBody> = {};
+    const updates: Partial<IUser> = {};
 
-    if (typeof incoming.username === "string" && incoming.username.trim().length > 0) {
-      updates.username = incoming.username.trim();
-    }
-
-    if (typeof incoming.displayName === "string") {
-      updates.displayName = incoming.displayName.trim();
+    if (Object.prototype.hasOwnProperty.call(incoming, "displayName")) {
+      updates.displayName = incoming.displayName?.trim() ?? null;
     }
 
     if (Object.prototype.hasOwnProperty.call(incoming, "avatar")) {
-      updates.avatar = incoming.avatar === null ? null : incoming.avatar;
+      updates.avatar = incoming.avatar ?? null;
     }
 
-    if (Object.prototype.hasOwnProperty.call(incoming, "avatarUrl")) {
-      updates.avatarUrl = incoming.avatarUrl === null ? null : incoming.avatarUrl;
+    if (Object.prototype.hasOwnProperty.call(incoming, "bio")) {
+      updates.bio = incoming.bio ?? null;
     }
 
-    if (typeof incoming.bio === "string" || incoming.bio === null) {
-      updates.bio = incoming.bio;
+    if (Object.prototype.hasOwnProperty.call(incoming, "mobileNumber")) {
+      updates.mobileNumber = incoming.mobileNumber ?? null;
     }
 
-    if (typeof incoming.city === "string") {
-      const normalizedCity = incoming.city.trim();
-      if (normalizedCity.length > 0) {
-        updates.city = normalizedCity;
-      }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: "No fields provided" });
     }
 
-    if (incoming.location && Array.isArray(incoming.location.coordinates) && incoming.location.coordinates.length === 2) {
-      updates.location = {
-        type: "Point",
-        coordinates: incoming.location.coordinates,
-      };
+    const nextKeywords = buildUserSearchKeywords(req.user.username, updates.displayName ?? req.user.displayName ?? null, updates.bio ?? req.user.bio ?? null);
+    updates.searchKeywords = nextKeywords;
+
+    const updated = await User.findByIdAndUpdate(req.user._id, { $set: updates }, { new: true, runValidators: true });
+
+    if (!updated) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { $set: updates },
-      { new: true, runValidators: true }
-    ).select("-password");
-
-    if (!user) {
-      return res.status(404).json({ msg: "User not found" });
-    }
-
-    console.log("User profile response:", user.avatarUrl);
-    return res.json(user);
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    console.error("Update error:", error);
-    return res.status(500).json({ msg: "Server error" });
+    return res.json({ success: true, data: sanitizeUser(updated) });
+  } catch (error) {
+    console.error("updateProfile error:", error);
+    return res.status(500).json({ message: "Failed to update profile" });
   }
 };
 
-export const addBadge = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
+export const searchUsers = async (req: Request<unknown, unknown, unknown, { q?: string }>, res: Response): Promise<Response> => {
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ success: false, error: "Unauthorized" });
+    const query = req.query.q?.trim();
+    if (!query) {
+      return res.json({ success: true, data: [] });
     }
 
-    const { badge } = req.body as { badge?: string };
+    const normalized = query.toLowerCase();
+    const users = await User.find({ searchKeywords: normalized }).limit(20);
 
-    if (!badge) {
-      return res.status(400).json({ success: false, error: "Badge id is required" });
+    return res.json({ success: true, data: users.map(sanitizeUser) });
+  } catch (error) {
+    console.error("searchUsers error:", error);
+    return res.status(500).json({ message: "Failed to search users" });
+  }
+};
+
+export const uploadAvatar = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { $push: { badges: badge } },
-      { new: true }
+    if (!req.file) {
+      return res.status(400).json({ message: "No avatar file provided" });
+    }
+
+    const uploadResult = await uploadImageBuffer(req.file.buffer, {
+      folder: env.cloudinaryAvatarFolder(),
+      publicId: req.user._id.toString(),
+      overwrite: true,
+    });
+
+    const updated = await User.findByIdAndUpdate(
+      req.user._id,
+      { $set: { avatar: uploadResult.secureUrl } },
+      { new: true, runValidators: true }
     );
 
-    if (!user) {
-      return res.status(404).json({ success: false, error: "User not found" });
+    if (!updated) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    return res.json({ success: true, data: user.badges });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(201).json({ success: true, data: sanitizeUser(updated) });
+  } catch (error) {
+    console.error("uploadAvatar error:", error);
+    return res.status(500).json({ message: "Failed to upload avatar" });
   }
 };
 
-export const syncStats = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
+export const deleteAccount = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ msg: "Unauthorized" });
+    if (!req.user?._id) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const { steps, distance } = req.body as SyncStatsBody;
+    const userId = req.user._id;
+    const activityIds = await Activity.find({ userId }).distinct("_id");
 
-    if (!steps && !distance) {
-      return res.status(400).json({ msg: "No stats provided" });
+    const deletionTasks: Promise<unknown>[] = [
+      Activity.deleteMany({ userId }).exec(),
+      FollowRelation.deleteMany({ $or: [{ followerId: userId }, { followingId: userId }] }).exec(),
+      FriendRequest.deleteMany({ $or: [{ senderId: userId }, { receiverId: userId }] }).exec(),
+      ClubMember.deleteMany({ userId }).exec(),
+      TerritoryCell.updateMany({ ownerId: userId }, { $set: { ownerId: null, ownerType: null } }).exec(),
+    ];
+
+    if (activityIds.length > 0) {
+      deletionTasks.push(ActivityStream.deleteMany({ activityId: { $in: activityIds } }).exec());
     }
 
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ msg: "User not found" });
+    await Promise.all(deletionTasks);
+
+    const deleted = await User.findByIdAndDelete(userId);
+    if (!deleted) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    user.ensureDailyReset();
+    return res.json({ success: true, message: "Account deleted" });
+  } catch (error) {
+    console.error("deleteAccount error:", error);
+    return res.status(500).json({ message: "Failed to delete account" });
+  }
+};
 
-    if (typeof steps === "number") {
-      user.updateSteps(Number(steps));
+type StatsRangeKey = "today" | "week" | "month" | "year" | "all";
+
+interface RangeBounds {
+  start?: Date;
+  end?: Date;
+}
+
+const defaultRanges: StatsRangeKey[] = ["today", "week", "all"];
+
+const startOfDay = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const startOfWeek = (date: Date): Date => {
+  const result = startOfDay(date);
+  const day = result.getDay();
+  const diff = (day + 6) % 7; // ISO week starts on Monday
+  result.setDate(result.getDate() - diff);
+  return result;
+};
+
+const startOfMonth = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), 1);
+
+const startOfYear = (date: Date): Date => new Date(date.getFullYear(), 0, 1);
+
+const resolveRangeBounds = (range: StatsRangeKey, now: Date): RangeBounds => {
+  switch (range) {
+    case "today":
+      return { start: startOfDay(now) };
+    case "week":
+      return { start: startOfWeek(now) };
+    case "month":
+      return { start: startOfMonth(now) };
+    case "year":
+      return { start: startOfYear(now) };
+    case "all":
+    default:
+      return {};
+  }
+};
+
+const buildStatsFacet = (bounds: RangeBounds): PipelineStage[] => {
+  const stages: PipelineStage[] = [];
+  if (bounds.start || bounds.end) {
+    const timeMatch: Record<string, unknown> = {};
+    if (bounds.start) {
+      timeMatch.$gte = bounds.start;
     }
-    if (typeof distance === "number") {
-      user.updateDistance(Number(distance));
+    if (bounds.end) {
+      timeMatch.$lte = bounds.end;
     }
+    stages.push({ $match: { startTime: timeMatch } });
+  }
 
-    await user.save();
-
-    return res.json({
-      msg: "Stats synced successfully",
-      user: {
-        id: user._id,
-        steps: user.steps,
-        distance: user.distance,
-        lifetimeSteps: user.lifetimeSteps,
-        lifetimeDistance: user.lifetimeDistance,
-        territories: user.territories,
+  stages.push({
+    $group: {
+      _id: null,
+      activities: { $sum: 1 },
+      totalDistance: { $sum: { $ifNull: ["$totalDistance", 0] } },
+      totalCalories: { $sum: { $ifNull: ["$calories", 0] } },
+      totalDurationMs: {
+        $sum: {
+          $max: [
+            0,
+            {
+              $subtract: [
+                { $ifNull: ["$endTime", new Date(0)] },
+                { $ifNull: ["$startTime", new Date(0)] },
+              ],
+            },
+          ],
+        },
       },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    console.error("Stats sync error:", error);
-    return res.status(500).json({ msg: "Server error" });
+    },
+  });
+
+  stages.push({
+    $project: {
+      _id: 0,
+      activities: 1,
+      totalDistance: { $ifNull: ["$totalDistance", 0] },
+      totalCalories: { $ifNull: ["$totalCalories", 0] },
+      totalDurationSeconds: {
+        $round: [
+          {
+            $divide: [
+              { $ifNull: ["$totalDurationMs", 0] },
+              1000,
+            ],
+          },
+          2,
+        ],
+      },
+    },
+  });
+
+  stages.push({
+    $addFields: {
+      avgSpeed: {
+        $cond: [
+          { $gt: ["$totalDurationSeconds", 0] },
+          {
+            $divide: [
+              "$totalDistance",
+              "$totalDurationSeconds",
+            ],
+          },
+          0,
+        ],
+      },
+      avgPaceSeconds: {
+        $cond: [
+          { $gt: ["$totalDistance", 0] },
+          {
+            $divide: [
+              "$totalDurationSeconds",
+              {
+                $divide: ["$totalDistance", 1000],
+              },
+            ],
+          },
+          0,
+        ],
+      },
+    },
+  });
+
+  return stages;
+};
+
+export const getActivityStats = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const now = new Date();
+    const rangesParam = typeof req.query.ranges === "string" ? req.query.ranges : undefined;
+    const requestedRanges = (rangesParam?.split(",") ?? defaultRanges).filter((entry): entry is StatsRangeKey => ["today", "week", "month", "year", "all"].includes(entry as StatsRangeKey));
+    const uniqueRanges = Array.from(new Set(requestedRanges.length > 0 ? requestedRanges : defaultRanges));
+
+    const facets: Record<string, PipelineStage[]> = {};
+    for (const range of uniqueRanges) {
+      facets[range] = buildStatsFacet(resolveRangeBounds(range, now));
+    }
+
+    const customStart = typeof req.query.from === "string" ? new Date(req.query.from) : undefined;
+    const customEnd = typeof req.query.to === "string" ? new Date(req.query.to) : undefined;
+    const customStartValid = customStart instanceof Date && !Number.isNaN(customStart.getTime()) ? customStart : undefined;
+    const customEndValid = customEnd instanceof Date && !Number.isNaN(customEnd.getTime()) ? customEnd : undefined;
+
+    if (customStartValid || customEndValid) {
+      facets.custom = buildStatsFacet({ start: customStartValid, end: customEndValid });
+    }
+
+    if (Object.keys(facets).length === 0) {
+      return res.json({ success: true, data: {} });
+    }
+
+    const pipeline: PipelineStage[] = [{ $match: { userId: req.user._id } }, { $facet: facets }];
+
+    const [raw] = await Activity.aggregate(pipeline);
+
+    const normalizeFacet = (key: string) => {
+      const entry = Array.isArray(raw?.[key]) && raw[key].length > 0 ? raw[key][0] : undefined;
+      return {
+        activities: entry?.activities ?? 0,
+        totalDistance: entry?.totalDistance ?? 0,
+        totalCalories: entry?.totalCalories ?? 0,
+        totalDurationSeconds: entry?.totalDurationSeconds ?? 0,
+        avgSpeed: entry?.avgSpeed ?? 0,
+        avgPaceSeconds: entry?.avgPaceSeconds ?? 0,
+      };
+    };
+
+    const data: Record<string, ReturnType<typeof normalizeFacet>> = {};
+    for (const key of Object.keys(facets)) {
+      data[key] = normalizeFacet(key);
+    }
+
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error("getActivityStats error:", error);
+    return res.status(500).json({ message: "Failed to aggregate activity stats" });
   }
 };

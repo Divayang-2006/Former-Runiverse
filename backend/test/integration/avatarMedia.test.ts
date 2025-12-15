@@ -1,17 +1,13 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import { afterAll, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import crypto from "crypto";
 import request from "supertest";
 
-import app from "../../dist/app.js";
-import User from "../../dist/models/User.js";
-import * as cloudinaryService from "../../dist/services/cloudinaryService.js";
-import "../../dist/models/Badge.js";
-import "../../dist/models/Territory.js";
-
-const TEST_SECRET = "phase4-secret";
+import app from "../../src/app.js";
+import User from "../../src/models/User.js";
+import * as cloudinaryService from "../../src/services/cloudinaryService.js";
 
 const createTempImage = (): string => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "avatar-test-"));
@@ -21,23 +17,19 @@ const createTempImage = (): string => {
 };
 
 describe("Avatar media endpoints", () => {
-  const uploadSpy = jest.spyOn(cloudinaryService, "uploadImage");
-  const deleteSpy = jest.spyOn(cloudinaryService, "deleteImage");
+  const uploadSpy = jest.spyOn(cloudinaryService, "uploadImageBuffer");
 
-  beforeAll(() => {
-    process.env.JWT_SECRET = TEST_SECRET;
-    process.env.JWT_EXPIRATION = "1h";
-    uploadSpy.mockResolvedValue({ secureUrl: "https://cdn.example.com/avatar.png", publicId: "avatar-123" });
-    deleteSpy.mockResolvedValue();
+  beforeEach(() => {
+    uploadSpy.mockReset();
+    uploadSpy.mockResolvedValue({
+      url: "http://cdn.test/avatar.png",
+      secureUrl: "https://cdn.test/avatar.png",
+      publicId: "avatar-123",
+    });
   });
 
   afterAll(() => {
     uploadSpy.mockRestore();
-    deleteSpy.mockRestore();
-  });
-
-  beforeEach(() => {
-    jest.clearAllMocks();
   });
 
   const register = async () => {
@@ -56,51 +48,29 @@ describe("Avatar media endpoints", () => {
     const { token } = await register();
 
     const response = await request(app)
-      .post("/api/avatar/upload")
+      .post("/api/users/me/avatar")
       .set("Authorization", `Bearer ${token}`);
 
     expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({ message: "No file uploaded" });
+    expect(response.body).toMatchObject({ message: "No avatar file provided" });
     expect(uploadSpy).not.toHaveBeenCalled();
   });
 
-  it("uploads avatar and updates the user profile", async () => {
+  it("uploads avatar, stores Cloudinary url, and returns sanitized profile", async () => {
     const { token, userId } = await register();
     const tempFile = createTempImage();
 
     const response = await request(app)
-      .post("/api/avatar/upload")
-      .set("Authorization", `Bearer ${token}`)
-      .attach("avatar", tempFile);
-
-    expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ success: true });
-    expect(uploadSpy).toHaveBeenCalledTimes(1);
-
-    const updatedUser = await User.findById(userId).lean();
-    expect(updatedUser?.avatarUrl).toBe("https://cdn.example.com/avatar.png");
-    expect(updatedUser?.avatarPublicId).toBe("avatar-123");
-  });
-
-  it("deletes avatar when requested", async () => {
-    const { token, userId } = await register();
-    const tempFile = createTempImage();
-
-    await request(app)
-      .post("/api/avatar/upload")
+      .post("/api/users/me/avatar")
       .set("Authorization", `Bearer ${token}`)
       .attach("avatar", tempFile)
-      .expect(200);
+      .expect(201);
 
-    const deleteResponse = await request(app)
-      .delete("/api/avatar/delete")
-      .set("Authorization", `Bearer ${token}`);
-
-    expect(deleteResponse.status).toBe(200);
-    expect(deleteSpy).toHaveBeenCalledWith("avatar-123");
+    expect(uploadSpy).toHaveBeenCalledTimes(1);
+    expect(response.body).toMatchObject({ success: true });
+    expect(response.body.data).toMatchObject({ avatar: "https://cdn.test/avatar.png" });
 
     const updatedUser = await User.findById(userId).lean();
-    expect(updatedUser?.avatarUrl).toBe("");
-    expect(updatedUser?.avatarPublicId).toBe("");
+    expect(updatedUser?.avatar).toBe("https://cdn.test/avatar.png");
   });
 });

@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
 import { api } from "./api";
 
 const TOKEN_STORAGE_KEY = "runiverse.auth.token";
@@ -11,6 +12,14 @@ class AuthService {
 
   private constructor() {}
 
+  private applyAuthHeader(token: string | null): void {
+    if (token) {
+      axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+    } else {
+      delete axios.defaults.headers.common.Authorization;
+    }
+  }
+
   public static getInstance(): AuthService {
     if (!AuthService.instance) {
       AuthService.instance = new AuthService();
@@ -20,6 +29,7 @@ class AuthService {
 
   private async persistToken(token: string | null): Promise<void> {
     this.token = token;
+    this.applyAuthHeader(token);
     try {
       if (token) {
         await AsyncStorage.setItem(TOKEN_STORAGE_KEY, token);
@@ -37,10 +47,12 @@ class AuthService {
       this.hydratePromise = AsyncStorage.getItem(TOKEN_STORAGE_KEY)
         .then((stored) => {
           this.token = stored;
+          this.applyAuthHeader(this.token);
         })
         .catch((err) => {
           console.warn("Unable to hydrate auth token", err);
           this.token = null;
+          this.applyAuthHeader(null);
         })
         .finally(() => {
           this.isHydrated = true;
@@ -55,11 +67,11 @@ class AuthService {
 
   // 🟢 LOGIN
   async login(
-    email: string,
+    identifier: string,
     password: string
   ): Promise<{ success: boolean; message: string; user?: any; token?: string }> {
     try {
-      const response = await api.post<any>("/api/auth/login", { email, password });
+      const response = await api.post<any>("/api/auth/login", { identifier, password });
 
       if (response?.token) {
         await this.persistToken(response.token);
@@ -104,41 +116,20 @@ class AuthService {
     }
   }
 
-  // 🟡 GOOGLE LOGIN
-  async googleLogin(): Promise<void> {
-    // On mobile, you’ll open the backend OAuth URL directly
-    const url = `${api.baseURL}/api/auth/google`;
-    // In a real app, use WebBrowser from Expo AuthSession:
-    // import * as WebBrowser from 'expo-web-browser';
-    // await WebBrowser.openBrowserAsync(url);
-    console.log("Redirect to Google OAuth:", url);
-  }
-
-  // 🟠 HANDLE GOOGLE CALLBACK (optional for dev mode)
-  async handleGoogleCallback(): Promise<{ success: boolean; message: string; user?: any; token?: string }> {
-    try {
-      const response = await api.get<any>('/api/auth/google/callback');
-
-      if (response?.token) {
-        await this.persistToken(response.token);
-        return {
-          success: true,
-          message: 'Google login successful',
-          user: response.user,
-          token: response.token,
-        };
-      }
-
-      return { success: false, message: 'Google login failed - no token received' };
-    } catch (error: any) {
-      console.error('Google callback error:', error);
-      return { success: false, message: error?.message || 'Google login failed' };
-    }
-  }
-
   // 🔴 LOGOUT
   async logout() {
-    await this.persistToken(null);
+    const token = this.getToken();
+
+    try {
+      if (token) {
+        await api.post<any>("/api/auth/logout", {}, token);
+      }
+    } catch (error) {
+      console.warn("Logout request failed:", error);
+    } finally {
+      await this.persistToken(null);
+      this.isHydrated = true;
+    }
   }
 }
 
