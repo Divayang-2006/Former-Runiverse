@@ -7,8 +7,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../services/AuthService';
 import { useStore } from '@/store/useStore';
 import { profileService } from '@/services/profileService';
-import { activityService } from '@/services/activityService';
-import axios from "axios";
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
 
@@ -52,14 +50,6 @@ const LoginScreen = () => {
             avatarUrl: result.user.avatar || result.user.avatarUrl || null,
           };
         }
-
-        // ✅ Update Zustand (persisted automatically)
-        setUser(normalizedUser);
-
-        // ✅ Set global axios header
-        axios.defaults.headers.common["Authorization"] = `Bearer ${result.token}`;
-        console.log("✅ Logged in user:", normalizedUser);
-        console.log("✅ Token saved:", normalizedUser?.token);
 
         try {
           const me = await profileService.fetchMe();

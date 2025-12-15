@@ -6,7 +6,6 @@ import { useTheme } from '../context/ThemeContext';
 import { Video, ResizeMode } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useRef } from 'react';
-import axios from "axios";
 import { authService } from "@/services/AuthService";
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
@@ -28,7 +27,6 @@ export default function WelcomeScreen() {
         await authService.hydrate();
         const token = authService.getToken();
         if (token && isMounted) {
-          axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
           router.replace("/(tabs)");
         }
       } catch (err) {

@@ -3,6 +3,12 @@ import User, { type IUser, type UserDocument } from "../models/User.js";
 import { buildUserSearchKeywords } from "../services/userService.js";
 import { uploadImageBuffer } from "../services/cloudinaryService.js";
 import { env } from "../config/env.js";
+import Activity from "../models/Activity.js";
+import ActivityStream from "../models/ActivityStream.js";
+import FollowRelation from "../models/FollowRelation.js";
+import FriendRequest from "../models/FriendRequest.js";
+import ClubMember from "../models/ClubMember.js";
+import TerritoryCell from "../models/TerritoryCell.js";
 
 interface AuthenticatedRequest extends Request {
   user?: UserDocument;
@@ -153,5 +159,40 @@ export const uploadAvatar = async (req: AuthenticatedRequest, res: Response): Pr
   } catch (error) {
     console.error("uploadAvatar error:", error);
     return res.status(500).json({ message: "Failed to upload avatar" });
+  }
+};
+
+export const deleteAccount = async (req: AuthenticatedRequest, res: Response): Promise<Response> => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const userId = req.user._id;
+    const activityIds = await Activity.find({ userId }).distinct("_id");
+
+    const deletionTasks: Promise<unknown>[] = [
+      Activity.deleteMany({ userId }).exec(),
+      FollowRelation.deleteMany({ $or: [{ followerId: userId }, { followingId: userId }] }).exec(),
+      FriendRequest.deleteMany({ $or: [{ senderId: userId }, { receiverId: userId }] }).exec(),
+      ClubMember.deleteMany({ userId }).exec(),
+      TerritoryCell.updateMany({ ownerId: userId }, { $set: { ownerId: null, ownerType: null } }).exec(),
+    ];
+
+    if (activityIds.length > 0) {
+      deletionTasks.push(ActivityStream.deleteMany({ activityId: { $in: activityIds } }).exec());
+    }
+
+    await Promise.all(deletionTasks);
+
+    const deleted = await User.findByIdAndDelete(userId);
+    if (!deleted) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({ success: true, message: "Account deleted" });
+  } catch (error) {
+    console.error("deleteAccount error:", error);
+    return res.status(500).json({ message: "Failed to delete account" });
   }
 };
